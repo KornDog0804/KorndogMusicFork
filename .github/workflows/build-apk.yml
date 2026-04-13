@@ -8,35 +8,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: yarn
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile --ignore-engines
-
-      - name: Expo prebuild
-        run: npx expo prebuild --platform android --clean
+      - name: Install and prebuild
+        run: |
+          yarn install
+          yarn bundle:es
+          yarn expo prebuild -p android --clean --no-install
 
       - name: Build APK
-        working-directory: android
         run: ./gradlew assembleRelease
+        working-directory: android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
