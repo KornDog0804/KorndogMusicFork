@@ -24,12 +24,12 @@ jobs:
           yarn expo prebuild -p android --clean --no-install
 
       - name: Build APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleDebug
         working-directory: android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: korndog-noutube-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 30
