@@ -50,6 +50,66 @@ val VIEW_HOSTS = arrayOf(
   "youtu.be"
 )
 
+// ============================================
+// KORNDOG RECORDS THEME - Zombie Kitty approved
+// ============================================
+val KORNDOG_CSS = """
+:root {
+  --yt-spec-base-background: #1a0a2e !important;
+  --yt-spec-raised-background: #1e0e35 !important;
+  --yt-spec-menu-background: #2d1450 !important;
+  --yt-spec-brand-background-solid: #2d1450 !important;
+  --yt-spec-general-background-a: #1a0a2e !important;
+  --yt-spec-general-background-b: #110720 !important;
+  --yt-spec-general-background-c: #1e0e35 !important;
+  --yt-spec-static-brand-red: #39ff14 !important;
+  --yt-spec-call-to-action: #39ff14 !important;
+  --yt-spec-text-primary: #f0eaf8 !important;
+  --yt-spec-text-secondary: #a090b8 !important;
+  --yt-spec-text-disabled: #6b5a80 !important;
+  --yt-spec-icon-active-other: #39ff14 !important;
+  --yt-spec-icon-inactive: #8a7f99 !important;
+  --yt-spec-badge-chip-background: #3f1d6b !important;
+  --yt-spec-brand-icon-active: #39ff14 !important;
+  --yt-spec-brand-button-background: #39ff14 !important;
+  --yt-spec-10-percent-layer: rgba(57,255,20,0.1) !important;
+  --yt-spec-outline: #3f1d6b !important;
+  --yt-spec-shadow: rgba(0,0,0,0.5) !important;
+}
+body { background: #1a0a2e !important; color: #f0eaf8 !important; }
+ytmusic-player-bar { background: #2d1450 !important; border-top: 2px solid #39ff14 !important; }
+tp-yt-paper-slider #sliderKnob { background: #39ff14 !important; }
+tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
+ytmusic-pivot-bar-renderer { background: #1a0a2e !important; border-top: 1px solid #3f1d6b !important; }
+ytmusic-chip-cloud-chip-renderer { background: #3f1d6b !important; }
+ytmusic-chip-cloud-chip-renderer[selected] { background: #39ff14 !important; color: #1a0a2e !important; }
+ytmusic-tabs-header { background: #2d1450 !important; }
+#nav-bar-background { background: #2d1450 !important; }
+ytmusic-search-box { background: #1e0e35 !important; }
+.content-info-wrapper .title { color: #39ff14 !important; }
+.content-info-wrapper .subtitle { color: #a090b8 !important; }
+ytmusic-detail-header-renderer { background: #1a0a2e !important; }
+ytmusic-section-list-renderer { background: #1a0a2e !important; }
+ytmusic-responsive-list-item-renderer:hover { background: rgba(57,255,20,0.08) !important; }
+ytmusic-menu-popup-renderer { background: #2d1450 !important; }
+tp-yt-paper-item:hover { background: rgba(57,255,20,0.1) !important; }
+tp-yt-paper-listbox { background: #2d1450 !important; }
+ytmusic-dialog { background: #2d1450 !important; }
+yt-button-renderer[button-next] a { color: #39ff14 !important; }
+.toggle-button { color: #39ff14 !important; }
+""".trimIndent().replace("\n", " ").replace("'", "\\'")
+
+val KORNDOG_INJECT_SCRIPT = """
+(function() {
+  var existing = document.getElementById('korndog-theme');
+  if (existing) existing.remove();
+  var s = document.createElement('style');
+  s.id = 'korndog-theme';
+  s.textContent = '$KORNDOG_CSS';
+  document.head.appendChild(s);
+})();
+""".trimIndent()
+
 class NouWebView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) :
   WebView(context, attrs, defStyleAttr) {
 
@@ -171,6 +231,8 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
           }
 
           override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+            // KORNDOG: inject theme first, then user scripts
+            evaluateJavascript(KORNDOG_INJECT_SCRIPT, null)
             evaluateJavascript(scriptOnStart, null)
           }
 
