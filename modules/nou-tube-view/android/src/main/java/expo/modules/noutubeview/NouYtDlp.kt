@@ -55,6 +55,71 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
+  /**
+   * Extract direct stream URL for casting - no download, just get the URL
+   * Returns map with "url" and "title"
+   */
+  fun getStreamUrl(videoUrl: String): Map<String, String> {
+    ensureYoutubeDLInitialized()
+
+    val request = YoutubeDLRequest(videoUrl)
+    request.addOption("--dump-json")
+    request.addOption("--no-playlist")
+    request.addOption("-R", "1")
+    request.addOption("--socket-timeout", "10")
+    // Prefer a combined format that DLNA devices can handle (mp4 with h264)
+    request.addOption("-f", "best[ext=mp4]/best")
+
+    val response = YoutubeDL.getInstance().execute(request)
+    val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty output"))
+
+    val title = json.optString("title", "NouTube Video")
+    val directUrl = json.optString("url", "")
+
+    if (directUrl.isEmpty()) {
+      // Fallback: try formats array for the best combined stream
+      val formats = json.optJSONArray("formats")
+      if (formats != null) {
+        // Look for best mp4 with both video and audio
+        var bestUrl = ""
+        var bestHeight = 0
+        for (i in 0 until formats.length()) {
+          val fmt = formats.optJSONObject(i) ?: continue
+          val vcodec = fmt.optString("vcodec", "none")
+          val acodec = fmt.optString("acodec", "none")
+          val ext = fmt.optString("ext", "")
+          val height = fmt.optInt("height", 0)
+          val url = fmt.optString("url", "")
+
+          // DLNA works best with mp4 containing both video and audio
+          if (vcodec != "none" && acodec != "none" && ext == "mp4" && height > bestHeight && url.isNotEmpty()) {
+            bestUrl = url
+            bestHeight = height
+          }
+        }
+
+        // If no combined mp4 found, try any format with video
+        if (bestUrl.isEmpty()) {
+          for (i in formats.length() - 1 downTo 0) {
+            val fmt = formats.optJSONObject(i) ?: continue
+            val vcodec = fmt.optString("vcodec", "none")
+            val url = fmt.optString("url", "")
+            if (vcodec != "none" && url.isNotEmpty()) {
+              bestUrl = url
+              break
+            }
+          }
+        }
+
+        return mapOf("url" to bestUrl, "title" to title)
+      }
+
+      throw Exception("No stream URL found")
+    }
+
+    return mapOf("url" to directUrl, "title" to title)
+  }
+
   fun listFormats(url: String): Map<String, Any> {
     ensureYoutubeDLInitialized()
 
