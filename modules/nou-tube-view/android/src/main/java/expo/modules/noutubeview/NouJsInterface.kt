@@ -68,44 +68,66 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
         val deviceInfo = view.nouCast.getSelectedDevice()
         val deviceName = deviceInfo?.get("name") ?: "TV"
 
-        // Get current page URL
-        var pageUrl = ""
-        withContext(Dispatchers.Main) {
-          pageUrl = view.getPageUrl()
-        }
-
-        if (pageUrl.isEmpty()) {
-          Log.e(TAG, "No page URL available")
-          callCastResult(false, deviceName)
-          return@launch
-        }
-
-        // Extract direct stream URL using yt-dlp
-        Log.d(TAG, "Extracting stream URL for: $pageUrl")
-        val ytDlp = NouYtDlp(context)
-        ytDlp.ensureYoutubeDLInitialized()
-
-        val streamInfo = ytDlp.getStreamUrl(pageUrl)
-        val streamUrl = streamInfo["url"] ?: ""
-        val title = streamInfo["title"] ?: "NouTube"
-
-        if (streamUrl.isEmpty()) {
-          Log.e(TAG, "Failed to extract stream URL")
-          callCastResult(false, deviceName)
-          return@launch
-        }
-
-        Log.d(TAG, "Got stream URL, casting to $deviceName")
-
-        // Cast the direct stream URL to the TV
-        val success = view.nouCast.castUrl(streamUrl, title)
-        callCastResult(success, deviceName)
-
+        castCurrentVideo(deviceName)
       } catch (e: Exception) {
         Log.e(TAG, "Cast failed: ${e.message}", e)
         callCastResult(false, "")
       }
     }
+  }
+
+  @JavascriptInterface
+  fun castToIp(ip: String) {
+    scope.launch {
+      try {
+        Log.d(TAG, "Attempting direct cast to IP: $ip")
+        val connected = view.nouCast.connectToIp(ip)
+        if (!connected) {
+          callCastResult(false, ip)
+          return@launch
+        }
+
+        castCurrentVideo(ip)
+      } catch (e: Exception) {
+        Log.e(TAG, "Direct IP cast failed: ${e.message}", e)
+        callCastResult(false, ip)
+      }
+    }
+  }
+
+  private suspend fun castCurrentVideo(deviceName: String) {
+    // Get current page URL
+    var pageUrl = ""
+    withContext(Dispatchers.Main) {
+      pageUrl = view.getPageUrl()
+    }
+
+    if (pageUrl.isEmpty()) {
+      Log.e(TAG, "No page URL available")
+      callCastResult(false, deviceName)
+      return
+    }
+
+    // Extract direct stream URL using yt-dlp
+    Log.d(TAG, "Extracting stream URL for: $pageUrl")
+    val ytDlp = NouYtDlp(context)
+    ytDlp.ensureYoutubeDLInitialized()
+
+    val streamInfo = ytDlp.getStreamUrl(pageUrl)
+    val streamUrl = streamInfo["url"] ?: ""
+    val title = streamInfo["title"] ?: "NouTube"
+
+    if (streamUrl.isEmpty()) {
+      Log.e(TAG, "Failed to extract stream URL")
+      callCastResult(false, deviceName)
+      return
+    }
+
+    Log.d(TAG, "Got stream URL, casting to $deviceName")
+
+    // Cast the direct stream URL to the TV
+    val success = view.nouCast.castUrl(streamUrl, title)
+    callCastResult(success, deviceName)
   }
 
   @JavascriptInterface
