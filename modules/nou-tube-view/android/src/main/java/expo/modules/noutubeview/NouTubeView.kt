@@ -78,7 +78,8 @@ val KORNDOG_THEME_CSS = """
 }
 body { background: #1a0a2e !important; color: #f0eaf8 !important; }
 ytmusic-player-bar { background: #2d1450 !important; border-top: 2px solid #39ff14 !important; }
-tp-yt-paper-slider #sliderKnob { background: #39ff14 !important; }
+tp-yt-paper-slider #sliderKnob { background: #39ff14 !important; width: 12px !important; height: 12px !important; border-radius: 50% !important; }
+tp-yt-paper-slider #sliderKnob #sliderKnobInner { background: #39ff14 !important; width: 12px !important; height: 12px !important; border-radius: 50% !important; border: none !important; box-shadow: none !important; }
 tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
 ytmusic-pivot-bar-renderer { background: #1a0a2e !important; border-top: 1px solid #3f1d6b !important; }
 ytmusic-chip-cloud-chip-renderer { background: #3f1d6b !important; }
