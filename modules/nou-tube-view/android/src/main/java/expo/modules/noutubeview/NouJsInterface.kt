@@ -131,6 +131,12 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   }
 
   @JavascriptInterface
+  fun castAdFree(deviceIndex: Int) = selectAndCast(deviceIndex)
+
+  @JavascriptInterface
+  fun castIpAdFree(ip: String) = castToIp(ip)
+
+  @JavascriptInterface
   fun pauseCast() {
     scope.launch {
       try {
