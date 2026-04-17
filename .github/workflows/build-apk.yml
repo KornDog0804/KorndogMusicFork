@@ -23,9 +23,23 @@ jobs:
           yarn bundle:es
           yarn expo prebuild -p android --clean --no-install
 
-      - name: Sign release with debug key
+      - name: Setup signing
         run: |
-          echo 'android.buildTypes.release.signingConfig = android.signingConfigs.debug' >> android/app/build.gradle
+          if [ -n "${{ secrets.SIGNING_KEY }}" ]; then
+            echo "${{ secrets.SIGNING_KEY }}" | base64 -d > android/app/korndog-release.keystore
+            cat >> android/app/build.gradle << 'EOF'
+          android.signingConfigs.create("release") {
+              storeFile = file("korndog-release.keystore")
+              storePassword = "KornDog2024!"
+              keyAlias = "korndog"
+              keyPassword = "KornDog2024!"
+          }
+          android.buildTypes.release.signingConfig = android.signingConfigs.getByName("release")
+          EOF
+          else
+            echo 'android.buildTypes.release.signingConfig = android.signingConfigs.debug' >> android/app/build.gradle
+          fi
+          echo 'android.packagingOptions.jniLibs.useLegacyPackaging = true' >> android/app/build.gradle
 
       - name: Build APK
         run: ./gradlew assembleRelease
