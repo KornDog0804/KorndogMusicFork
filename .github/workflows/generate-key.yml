@@ -1,0 +1,38 @@
+name: Generate Signing Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate keystore
+        run: |
+          keytool -genkeypair \
+            -v \
+            -storetype PKCS12 \
+            -keystore korndog-release.keystore \
+            -alias korndog \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass KornDog2024! \
+            -keypass KornDog2024! \
+            -dname "CN=KornDog Records, OU=Mobile, O=KornDog, L=Bowling Green, ST=KY, C=US"
+
+      - name: Base64 encode keystore
+        run: |
+          echo "=== COPY EVERYTHING BETWEEN THE MARKERS ==="
+          echo "---START-KEYSTORE---"
+          base64 -w 0 korndog-release.keystore
+          echo ""
+          echo "---END-KEYSTORE---"
+          echo "=== DONE ==="
+
+      - name: Upload keystore as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: korndog-keystore
+          path: korndog-release.keystore
+          retention-days: 1
