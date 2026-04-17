@@ -97,6 +97,21 @@ tp-yt-paper-listbox { background: #2d1450 !important; }
 ytmusic-dialog { background: #2d1450 !important; }
 yt-button-renderer[button-next] a { color: #39ff14 !important; }
 .toggle-button { color: #39ff14 !important; }
+#korndog-cast-btn { position:fixed; bottom:80px; right:16px; z-index:99999; width:48px; height:48px; border-radius:50%; background:#39ff14; border:2px solid #2d1450; box-shadow:0 0 12px rgba(57,255,20,0.4); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:transform 0.15s,box-shadow 0.15s; }
+#korndog-cast-btn:active { transform:scale(0.92); }
+#korndog-cast-btn.connected { background:#2d1450; border-color:#39ff14; }
+#korndog-cast-btn svg { width:24px; height:24px; }
+#korndog-cast-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,10,46,0.95); z-index:100000; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+#korndog-cast-overlay.show { display:flex; }
+#korndog-cast-overlay h2 { color:#39ff14; font-size:20px; margin-bottom:16px; font-family:sans-serif; }
+#korndog-cast-overlay .kd-device { background:#2d1450; border:1px solid #3f1d6b; border-radius:8px; padding:14px 20px; margin:6px 0; width:100%; max-width:300px; color:#f0eaf8; font-size:16px; font-family:sans-serif; cursor:pointer; text-align:center; }
+#korndog-cast-overlay .kd-device:active { background:#3f1d6b; border-color:#39ff14; }
+#korndog-cast-overlay .kd-status { color:#a090b8; font-size:14px; margin:12px 0; font-family:sans-serif; }
+#korndog-cast-overlay .kd-close { color:#ff2d2d; font-size:14px; margin-top:20px; cursor:pointer; font-family:sans-serif; }
+#korndog-cast-controls { display:none; position:fixed; bottom:140px; right:10px; z-index:99999; background:#2d1450; border:1px solid #39ff14; border-radius:12px; padding:8px; flex-direction:column; gap:6px; box-shadow:0 0 12px rgba(57,255,20,0.3); }
+#korndog-cast-controls.show { display:flex; }
+#korndog-cast-controls button { width:40px; height:40px; border-radius:50%; border:none; background:#3f1d6b; color:#39ff14; font-size:18px; cursor:pointer; }
+#korndog-cast-controls button:active { background:#5c2d91; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
 val KORNDOG_INJECT_SCRIPT = """
@@ -107,6 +122,93 @@ val KORNDOG_INJECT_SCRIPT = """
   s.id = 'korndog-theme';
   s.textContent = '$KORNDOG_CSS';
   document.head.appendChild(s);
+
+  if (!document.getElementById('korndog-cast-btn')) {
+    var castSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="#1a0a2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>';
+    var castSvgConnected = '<svg viewBox="0 0 24 24" fill="none" stroke="#39ff14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>';
+
+    var btn = document.createElement('div');
+    btn.id = 'korndog-cast-btn';
+    btn.innerHTML = castSvg;
+    document.body.appendChild(btn);
+
+    var overlay = document.createElement('div');
+    overlay.id = 'korndog-cast-overlay';
+    overlay.innerHTML = '<h2>Cast to TV</h2><div class="kd-status">Searching for devices...</div><div class="kd-close">Close</div>';
+    document.body.appendChild(overlay);
+
+    var controls = document.createElement('div');
+    controls.id = 'korndog-cast-controls';
+    controls.innerHTML = '<button id="kd-ctrl-pause">&#x23F8;</button><button id="kd-ctrl-stop">&#x23F9;</button>';
+    document.body.appendChild(controls);
+
+    var isConnected = false;
+
+    btn.addEventListener('click', function() {
+      if (isConnected) {
+        controls.classList.toggle('show');
+      } else {
+        overlay.classList.add('show');
+        overlay.querySelector('.kd-status').textContent = 'Searching for devices...';
+        var deviceList = overlay.querySelectorAll('.kd-device');
+        deviceList.forEach(function(d) { d.remove(); });
+        window.NouTubeI.discoverDevices();
+      }
+    });
+
+    overlay.querySelector('.kd-close').addEventListener('click', function() {
+      overlay.classList.remove('show');
+    });
+
+    document.getElementById('kd-ctrl-pause').addEventListener('click', function() {
+      window.NouTubeI.pauseCast();
+    });
+
+    document.getElementById('kd-ctrl-stop').addEventListener('click', function() {
+      window.NouTubeI.stopCast();
+      isConnected = false;
+      btn.classList.remove('connected');
+      btn.innerHTML = castSvg;
+      controls.classList.remove('show');
+    });
+
+    window.kdShowDevices = function(devicesJson) {
+      var devices = JSON.parse(devicesJson);
+      var deviceList = overlay.querySelectorAll('.kd-device');
+      deviceList.forEach(function(d) { d.remove(); });
+      var status = overlay.querySelector('.kd-status');
+
+      if (devices.length === 0) {
+        status.textContent = 'No devices found. Make sure your TV is on and on the same WiFi.';
+        return;
+      }
+
+      status.textContent = 'Found ' + devices.length + ' device(s):';
+      devices.forEach(function(device, index) {
+        var el = document.createElement('div');
+        el.className = 'kd-device';
+        el.textContent = device.name;
+        el.addEventListener('click', function() {
+          status.textContent = 'Connecting to ' + device.name + '...';
+          window.NouTubeI.selectAndCast(index);
+        });
+        overlay.querySelector('.kd-close').before(el);
+      });
+    };
+
+    window.kdCastResult = function(success, deviceName) {
+      var status = overlay.querySelector('.kd-status');
+      if (success) {
+        isConnected = true;
+        btn.classList.add('connected');
+        btn.innerHTML = castSvgConnected;
+        overlay.classList.remove('show');
+        controls.classList.add('show');
+      } else {
+        status.textContent = 'Failed to cast. Try again.';
+      }
+    };
+  }
 })();
 """.trimIndent()
 
@@ -158,6 +260,9 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
   private var pageUrl = ""
   private var customView: View? = null
   private lateinit var orientationListener: NouOrientationListener
+
+  // KORNDOG CAST
+  internal val nouCast = NouCast(context)
 
   private val gestureListener =
     object : GestureDetector.SimpleOnGestureListener() {
@@ -231,7 +336,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
           }
 
           override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            // KORNDOG: inject theme first, then user scripts
+            // KORNDOG: inject theme + cast button first, then user scripts
             evaluateJavascript(KORNDOG_INJECT_SCRIPT, null)
             evaluateJavascript(scriptOnStart, null)
           }
@@ -419,6 +524,10 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     ) {
       activity?.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER)
     }
+  }
+
+  fun getPageUrl(): String {
+    return pageUrl
   }
 
   fun exit() {
