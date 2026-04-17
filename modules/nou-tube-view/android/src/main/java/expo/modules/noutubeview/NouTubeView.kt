@@ -38,6 +38,9 @@ import expo.modules.kotlin.viewevent.EventDispatcher
 import expo.modules.kotlin.views.ExpoView
 import java.io.ByteArrayInputStream
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 val BLOCK_HOSTS = arrayOf(
@@ -78,9 +81,10 @@ val KORNDOG_THEME_CSS = """
 }
 body { background: #1a0a2e !important; color: #f0eaf8 !important; }
 ytmusic-player-bar { background: #2d1450 !important; border-top: 2px solid #39ff14 !important; }
-tp-yt-paper-slider #sliderKnob { background: #39ff14 !important; width: 12px !important; height: 12px !important; border-radius: 50% !important; }
-tp-yt-paper-slider #sliderKnob #sliderKnobInner { background: #39ff14 !important; width: 12px !important; height: 12px !important; border-radius: 50% !important; border: none !important; box-shadow: none !important; }
+tp-yt-paper-slider #sliderKnob { display: none !important; }
+tp-yt-paper-slider #sliderKnob #sliderKnobInner { display: none !important; }
 tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
+tp-yt-paper-slider #progressContainer { height: 3px !important; }
 ytmusic-pivot-bar-renderer { background: #1a0a2e !important; border-top: 1px solid #3f1d6b !important; }
 ytmusic-chip-cloud-chip-renderer { background: #3f1d6b !important; }
 ytmusic-chip-cloud-chip-renderer[selected] { background: #39ff14 !important; color: #1a0a2e !important; }
@@ -98,17 +102,25 @@ tp-yt-paper-listbox { background: #2d1450 !important; }
 ytmusic-dialog { background: #2d1450 !important; }
 yt-button-renderer[button-next] a { color: #39ff14 !important; }
 .toggle-button { color: #39ff14 !important; }
-#korndog-cast-btn { position:fixed; bottom:80px; right:16px; z-index:99999; width:52px; height:52px; border-radius:50%; background:#39ff14; border:2px solid #2d1450; box-shadow:0 0 12px rgba(57,255,20,0.4); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:24px; line-height:1; transition:transform 0.15s,box-shadow 0.15s; }
+#korndog-cast-btn { position:fixed; bottom:90px; right:16px; z-index:99999; width:48px; height:48px; border-radius:50%; background:#39ff14; border:2px solid #2d1450; box-shadow:0 0 12px rgba(57,255,20,0.4); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; line-height:1; transition:transform 0.15s,box-shadow 0.15s; }
 #korndog-cast-btn:active { transform:scale(0.92); }
 #korndog-cast-btn.connected { background:#2d1450; border-color:#39ff14; }
-#korndog-cast-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,10,46,0.95); z-index:100000; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+#korndog-cast-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,10,46,0.97); z-index:100000; flex-direction:column; align-items:center; justify-content:center; padding:24px; box-sizing:border-box; }
 #korndog-cast-overlay.show { display:flex; }
-#korndog-cast-overlay h2 { color:#39ff14; font-size:20px; margin-bottom:16px; font-family:sans-serif; }
-#korndog-cast-overlay .kd-device { background:#2d1450; border:1px solid #3f1d6b; border-radius:8px; padding:14px 20px; margin:6px 0; width:100%; max-width:300px; color:#f0eaf8; font-size:16px; font-family:sans-serif; cursor:pointer; text-align:center; }
+#korndog-cast-overlay h2 { color:#39ff14; font-size:22px; margin:0 0 20px 0; font-family:sans-serif; text-align:center; }
+#korndog-cast-overlay .kd-device { background:#2d1450; border:1px solid #3f1d6b; border-radius:10px; padding:16px 24px; margin:6px 0; width:100%; max-width:320px; color:#f0eaf8; font-size:16px; font-family:sans-serif; cursor:pointer; text-align:center; }
 #korndog-cast-overlay .kd-device:active { background:#3f1d6b; border-color:#39ff14; }
-#korndog-cast-overlay .kd-status { color:#a090b8; font-size:14px; margin:12px 0; font-family:sans-serif; }
-#korndog-cast-overlay .kd-close { color:#ff2d2d; font-size:14px; margin-top:20px; cursor:pointer; font-family:sans-serif; padding:10px; }
-#korndog-cast-controls { display:none; position:fixed; bottom:140px; right:10px; z-index:99999; background:#2d1450; border:1px solid #39ff14; border-radius:12px; padding:8px; flex-direction:column; gap:6px; box-shadow:0 0 12px rgba(57,255,20,0.3); }
+#korndog-cast-overlay .kd-status { color:#a090b8; font-size:14px; margin:16px 0; font-family:sans-serif; text-align:center; }
+#korndog-cast-overlay .kd-close { color:#ff2d2d; font-size:15px; margin-top:24px; cursor:pointer; font-family:sans-serif; padding:12px 24px; border:1px solid #ff2d2d; border-radius:8px; }
+#korndog-cast-overlay .kd-close:active { background:rgba(255,45,45,0.15); }
+#korndog-cast-overlay .kd-manual-btn { color:#39ff14; font-size:14px; margin-top:16px; cursor:pointer; font-family:sans-serif; padding:10px 20px; border:1px solid #3f1d6b; border-radius:8px; background:#1e0e35; }
+#korndog-cast-overlay .kd-manual-btn:active { background:#3f1d6b; }
+#korndog-ip-input { background:#1e0e35; border:2px solid #3f1d6b; border-radius:8px; color:#f0eaf8; font-size:18px; padding:12px 16px; width:100%; max-width:280px; text-align:center; font-family:monospace; margin:8px 0; outline:none; box-sizing:border-box; }
+#korndog-ip-input:focus { border-color:#39ff14; }
+#korndog-ip-input::placeholder { color:#6b5a80; }
+.kd-connect-btn { background:#39ff14; color:#1a0a2e; font-size:16px; font-weight:bold; padding:12px 32px; border:none; border-radius:8px; cursor:pointer; font-family:sans-serif; margin-top:8px; }
+.kd-connect-btn:active { background:#2bcc0f; }
+#korndog-cast-controls { display:none; position:fixed; bottom:150px; right:10px; z-index:99999; background:#2d1450; border:1px solid #39ff14; border-radius:12px; padding:8px; flex-direction:column; gap:6px; box-shadow:0 0 12px rgba(57,255,20,0.3); }
 #korndog-cast-controls.show { display:flex; }
 #korndog-cast-controls button { width:40px; height:40px; border-radius:50%; border:none; background:#3f1d6b; color:#39ff14; font-size:18px; cursor:pointer; }
 #korndog-cast-controls button:active { background:#5c2d91; }
@@ -151,6 +163,27 @@ val KORNDOG_CAST_SCRIPT = """
     status.textContent = 'Searching for devices...';
     overlay.appendChild(status);
 
+    var manualBtn = document.createElement('div');
+    manualBtn.className = 'kd-manual-btn';
+    manualBtn.textContent = 'Enter TV IP Address';
+    overlay.appendChild(manualBtn);
+
+    var ipContainer = document.createElement('div');
+    ipContainer.style.cssText = 'display:none;flex-direction:column;align-items:center;width:100%;margin-top:12px;';
+    overlay.appendChild(ipContainer);
+
+    var ipInput = document.createElement('input');
+    ipInput.id = 'korndog-ip-input';
+    ipInput.type = 'text';
+    ipInput.placeholder = '192.168.1.xxx';
+    ipInput.inputMode = 'decimal';
+    ipContainer.appendChild(ipInput);
+
+    var connectBtn = document.createElement('button');
+    connectBtn.className = 'kd-connect-btn';
+    connectBtn.textContent = 'Connect';
+    ipContainer.appendChild(connectBtn);
+
     var closeBtn = document.createElement('div');
     closeBtn.className = 'kd-close';
     closeBtn.textContent = 'Close';
@@ -171,6 +204,7 @@ val KORNDOG_CAST_SCRIPT = """
     controls.appendChild(stopBtn);
 
     var isConnected = false;
+    var showingManual = false;
 
     btn.addEventListener('click', function() {
       if (isConnected) {
@@ -178,6 +212,8 @@ val KORNDOG_CAST_SCRIPT = """
       } else {
         overlay.classList.add('show');
         status.textContent = 'Searching for devices...';
+        ipContainer.style.display = 'none';
+        showingManual = false;
         var old = overlay.querySelectorAll('.kd-device');
         for (var i = 0; i < old.length; i++) old[i].remove();
         if (window.NouTubeI && window.NouTubeI.discoverDevices) {
@@ -186,6 +222,33 @@ val KORNDOG_CAST_SCRIPT = """
           status.textContent = 'Cast not available';
         }
       }
+    });
+
+    manualBtn.addEventListener('click', function() {
+      if (showingManual) {
+        ipContainer.style.display = 'none';
+        showingManual = false;
+      } else {
+        ipContainer.style.display = 'flex';
+        showingManual = true;
+        ipInput.focus();
+      }
+    });
+
+    connectBtn.addEventListener('click', function() {
+      var ip = ipInput.value.trim();
+      if (ip && ip.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+        status.textContent = 'Extracting ad-free stream for ' + ip + '...';
+        if (window.NouTubeI && window.NouTubeI.castIpAdFree) {
+          window.NouTubeI.castIpAdFree(ip);
+        }
+      } else {
+        status.textContent = 'Please enter a valid IP address';
+      }
+    });
+
+    ipInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') connectBtn.click();
     });
 
     closeBtn.addEventListener('click', function() {
@@ -210,7 +273,9 @@ val KORNDOG_CAST_SCRIPT = """
       for (var i = 0; i < old.length; i++) old[i].remove();
 
       if (devices.length === 0) {
-        status.textContent = 'No devices found. Make sure your TV is on and on the same WiFi.';
+        status.textContent = 'No devices found automatically. Try entering your TV IP address below.';
+        ipContainer.style.display = 'flex';
+        showingManual = true;
         return;
       }
 
@@ -221,10 +286,10 @@ val KORNDOG_CAST_SCRIPT = """
           el.className = 'kd-device';
           el.textContent = name;
           el.addEventListener('click', function() {
-            status.textContent = 'Connecting to ' + name + '...';
-            window.NouTubeI.selectAndCast(index);
+            status.textContent = 'Extracting ad-free stream...';
+            window.NouTubeI.castAdFree(index);
           });
-          overlay.insertBefore(el, closeBtn);
+          overlay.insertBefore(el, manualBtn);
         })(j, devices[j].name);
       }
     };
@@ -237,7 +302,14 @@ val KORNDOG_CAST_SCRIPT = """
         overlay.classList.remove('show');
         controls.classList.add('show');
       } else {
-        status.textContent = 'Failed to cast. Try again.';
+        status.textContent = 'Failed to cast to ' + deviceName + '. Check the IP and make sure DLNA is running on the TV.';
+      }
+    };
+
+    window.kdSetStatus = function(msg) {
+      status.textContent = msg;
+      if (!overlay.classList.contains('show')) {
+        overlay.classList.add('show');
       }
     };
   }
@@ -366,13 +438,11 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
           }
 
           override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            // Inject theme CSS immediately (only needs head)
             evaluateJavascript(KORNDOG_THEME_SCRIPT, null)
             evaluateJavascript(scriptOnStart, null)
           }
 
           override fun onPageFinished(view: WebView, url: String) {
-            // Inject cast button after page is loaded (needs body)
             evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
           }
 
@@ -561,6 +631,85 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun getPageUrl(): String {
     return pageUrl
+  }
+
+  // ============================================
+  // AD-FREE CASTING via yt-dlp direct stream
+  // ============================================
+
+  /** Called by NouJsInterface when user picks a discovered device */
+  fun castAdFree(deviceIndex: Int) {
+    CoroutineScope(Dispatchers.IO).launch {
+      doExtractAndCast(deviceIndex = deviceIndex)
+    }
+  }
+
+  /** Called by NouJsInterface when user enters a manual IP */
+  fun castIpAdFree(ip: String) {
+    CoroutineScope(Dispatchers.IO).launch {
+      doExtractAndCast(targetIp = ip)
+    }
+  }
+
+  private suspend fun doExtractAndCast(deviceIndex: Int = -1, targetIp: String? = null) {
+    val url = pageUrl
+    if (url.isEmpty() || (!url.contains("youtube.com") && !url.contains("youtu.be"))) {
+      postCastStatus("Navigate to a YouTube video first")
+      return
+    }
+
+    postCastStatus("Extracting ad-free stream (10–20s)…")
+
+    try {
+      val ytDlp = NouYtDlp(context)
+      ytDlp.ensureYoutubeDLInitialized()
+
+      // getStreamUrl() returns Map<String, String> with "url" and "title"
+      val streamInfo = ytDlp.getStreamUrl(url)
+      val streamUrl = streamInfo["url"] ?: ""
+      if (streamUrl.isBlank()) {
+        postCastStatus("Failed to extract stream. Try a different video.")
+        return
+      }
+      val videoTitle = streamInfo["title"] ?: "NouTube Video"
+
+      postCastStatus("Casting to TV…")
+
+      val success = if (targetIp != null) {
+        // connectToIp sets currentDevice, then castUrl uses it
+        val connected = nouCast.connectToIp(targetIp)
+        if (!connected) {
+          postCastStatus("No DLNA found at $targetIp — check your TV's IP")
+          return
+        }
+        nouCast.castUrl(streamUrl, videoTitle)
+      } else {
+        // selectDevice sets currentDevice by index, then castUrl uses it
+        if (!nouCast.selectDevice(deviceIndex)) {
+          postCastStatus("Invalid device — try re-scanning")
+          return
+        }
+        nouCast.castUrl(streamUrl, videoTitle)
+      }
+
+      val label = targetIp ?: nouCast.getSelectedDevice()?.get("name") ?: "TV"
+      val safeLabel = label.replace("'", "\\'")
+      currentActivity?.runOnUiThread {
+        webView.evaluateJavascript(
+          "window.kdCastResult && window.kdCastResult($success, '$safeLabel')",
+          null
+        )
+      }
+    } catch (e: Exception) {
+      postCastStatus("Error: ${e.message?.take(80) ?: "unknown"}")
+    }
+  }
+
+  private fun postCastStatus(msg: String) {
+    val escaped = msg.replace("'", "\\'")
+    currentActivity?.runOnUiThread {
+      webView.evaluateJavascript("window.kdSetStatus && window.kdSetStatus('$escaped')", null)
+    }
   }
 
   fun exit() {
