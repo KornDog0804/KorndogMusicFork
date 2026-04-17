@@ -31,6 +31,9 @@ class NouCast(private val context: Context) {
   private var currentDevice: CastDevice? = null
   private val devices = mutableListOf<CastDevice>()
 
+  // Common DLNA renderer ports to try
+  private val DLNA_PORTS = intArrayOf(7070, 49152, 8008, 1244, 2869, 8080, 9000, 49153, 49154, 1900, 52235, 60606)
+
   /**
    * Discover DLNA renderers on the local network via SSDP
    */
@@ -113,6 +116,71 @@ class NouCast(private val context: Context) {
         "location" to device.location
       )
     }
+  }
+
+  /**
+   * Connect directly to a DLNA device by IP address
+   * Tries common DLNA ports to find the device description
+   */
+  suspend fun connectToIp(ip: String): Boolean = withContext(Dispatchers.IO) {
+    Log.d(TAG, "Trying to connect to DLNA device at $ip")
+
+    for (port in DLNA_PORTS) {
+      try {
+        val locationUrl = "http://$ip:$port/description.xml"
+        Log.d(TAG, "Trying $locationUrl")
+        val device = fetchDeviceInfo(locationUrl)
+        if (device != null) {
+          currentDevice = device
+          Log.d(TAG, "Connected to ${device.name} at $locationUrl")
+          return@withContext true
+        }
+      } catch (e: Exception) {
+        // Try alternate paths
+      }
+
+      // Try without /description.xml
+      try {
+        val locationUrl = "http://$ip:$port/dmr.xml"
+        val device = fetchDeviceInfo(locationUrl)
+        if (device != null) {
+          currentDevice = device
+          Log.d(TAG, "Connected to ${device.name} at $locationUrl")
+          return@withContext true
+        }
+      } catch (e: Exception) {
+        // Continue
+      }
+
+      // Try root device xml
+      try {
+        val locationUrl = "http://$ip:$port/rootDesc.xml"
+        val device = fetchDeviceInfo(locationUrl)
+        if (device != null) {
+          currentDevice = device
+          Log.d(TAG, "Connected to ${device.name} at $locationUrl")
+          return@withContext true
+        }
+      } catch (e: Exception) {
+        // Continue
+      }
+
+      // Try plain root
+      try {
+        val locationUrl = "http://$ip:$port/"
+        val device = fetchDeviceInfo(locationUrl)
+        if (device != null) {
+          currentDevice = device
+          Log.d(TAG, "Connected to ${device.name} at $locationUrl")
+          return@withContext true
+        }
+      } catch (e: Exception) {
+        // Continue to next port
+      }
+    }
+
+    Log.e(TAG, "Could not find DLNA service on $ip")
+    false
   }
 
   /**
@@ -250,10 +318,13 @@ class NouCast(private val context: Context) {
   private fun fetchDeviceInfo(location: String): CastDevice? {
     val url = URL(location)
     val connection = url.openConnection() as HttpURLConnection
-    connection.connectTimeout = 3000
-    connection.readTimeout = 3000
+    connection.connectTimeout = 2000
+    connection.readTimeout = 2000
 
     try {
+      val responseCode = connection.responseCode
+      if (responseCode != 200) return null
+
       val xml = connection.inputStream.bufferedReader().readText()
       val factory = DocumentBuilderFactory.newInstance()
       val builder = factory.newDocumentBuilder()
@@ -284,7 +355,8 @@ class NouCast(private val context: Context) {
 
       if (controlPath.isEmpty()) return null
 
-      val baseUrl = "${url.protocol}://${url.host}:${url.port}"
+      val port = if (url.port == -1) url.defaultPort else url.port
+      val baseUrl = "${url.protocol}://${url.host}:${port}"
       val controlUrl = if (controlPath.startsWith("http")) {
         controlPath
       } else {
