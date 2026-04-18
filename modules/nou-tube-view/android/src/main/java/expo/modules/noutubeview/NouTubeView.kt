@@ -104,7 +104,7 @@ yt-button-renderer[button-next] a { color: #39ff14 !important; }
 .toggle-button { color: #39ff14 !important; }
 #korndog-cast-btn { position:fixed; top:12px; right:56px; z-index:99999; width:36px; height:36px; border-radius:8px; background:transparent; border:none; box-shadow:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; line-height:1; transition:transform 0.15s,opacity 0.15s; opacity:0.85; }
 #korndog-cast-btn:active { transform:scale(0.92); }
-#korndog-cast-btn.connected { background:#2d1450; border-color:#39ff14; }
+#korndog-cast-btn.connected { background:#2d1450; border-color:#39ff14; box-shadow:0 0 20px #39ff14; }
 #korndog-cast-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,10,46,0.97); z-index:100000; flex-direction:column; align-items:center; justify-content:center; padding:24px; box-sizing:border-box; }
 #korndog-cast-overlay.show { display:flex; }
 #korndog-cast-overlay h2 { color:#39ff14; font-size:22px; margin:0 0 20px 0; font-family:sans-serif; text-align:center; }
@@ -314,6 +314,21 @@ val KORNDOG_CAST_SCRIPT = """
     };
   }
   setTimeout(initCastButton, 1000);
+
+  // Auto-cast when video changes
+  if (!window._kdAutocastInit) {
+    window._kdAutocastInit = true;
+    var _kdLastUrl = "";
+    setInterval(function() {
+      var url = window.location.href;
+      if (url !== _kdLastUrl && url.indexOf("watch") !== -1) {
+        _kdLastUrl = url;
+        if (window.NouTubeI && window.NouTubeI.autoCast) {
+          window.NouTubeI.autoCast();
+        }
+      }
+    }, 2000);
+  }
 })();
 """.trimIndent()
 
