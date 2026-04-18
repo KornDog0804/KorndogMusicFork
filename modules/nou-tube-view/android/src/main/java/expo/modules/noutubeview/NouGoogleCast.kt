@@ -4,18 +4,19 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
+import com.google.android.gms.cast.CastMediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 private const val TAG = "NouGoogleCast"
 
@@ -33,8 +34,11 @@ class NouGoogleCast(private val context: Context) {
     }
   }
 
+  /**
+   * Discover nearby Chromecast / Google TV devices via MediaRouter
+   */
   suspend fun discoverDevices(): List<Map<String, String>> = withContext(Dispatchers.Main) {
-    castContext ?: return@withContext emptyList<Map<String, String>>()
+    val cc = castContext ?: return@withContext emptyList<Map<String, String>>()
 
     val selector = MediaRouteSelector.Builder()
       .addControlCategory(
@@ -47,79 +51,110 @@ class NouGoogleCast(private val context: Context) {
     val router = MediaRouter.getInstance(context)
     router.routes
       .filter { route -> route.matchesSelector(selector) && !route.isDefault && !route.isBluetooth }
-      .map { route -> mapOf("name" to route.name, "id" to route.id, "type" to "googlecast") }
+      .map { route ->
+        mapOf("name" to route.name, "id" to route.id, "type" to "googlecast")
+      }
   }
 
+  /**
+   * Cast a direct stream URL to a discovered Google Cast device by route ID
+   */
   suspend fun castUrl(routeId: String, streamUrl: String, title: String): Boolean =
     withContext(Dispatchers.Main) {
-      val cc = castContext ?: return@withContext false
+      val cc = castContext ?: run {
+        Log.e(TAG, "CastContext not initialized")
+        return@withContext false
+      }
+
       try {
         val router = MediaRouter.getInstance(context)
-        val route = router.routes.find { it.id == routeId } ?: return@withContext false
+        val route = router.routes.find { it.id == routeId } ?: run {
+          Log.e(TAG, "Route $routeId not found")
+          return@withContext false
+        }
+
         router.selectRoute(route)
 
-        val session = awaitCastSession(cc, 10_000) ?: return@withContext false
+        val session = awaitCastSession(cc, timeoutMs = 10_000) ?: run {
+          Log.e(TAG, "Session never connected")
+          return@withContext false
+        }
 
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
           putString(MediaMetadata.KEY_TITLE, title)
         }
+
         val mediaInfo = MediaInfo.Builder(streamUrl)
           .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
           .setContentType("video/mp4")
           .setMetadata(metadata)
           .build()
+
         val loadRequest = MediaLoadRequestData.Builder()
           .setMediaInfo(mediaInfo)
           .setAutoplay(true)
           .build()
 
-        val remoteClient = session.remoteMediaClient ?: return@withContext false
-        val deferred = CompletableDeferred<Boolean>()
-        remoteClient.load(loadRequest).setResultCallback { r -> deferred.complete(r.status.isSuccess) }
-        val result = deferred.await()
+        val remoteClient = session.remoteMediaClient ?: run {
+          Log.e(TAG, "No RemoteMediaClient on session")
+          return@withContext false
+        }
+
+        val result = suspendCancellableCoroutine<Boolean> { cont ->
+          remoteClient.load(loadRequest).setResultCallback { mediaResult ->
+            cont.resume(mediaResult.status.isSuccess)
+          }
+        }
 
         if (result) activeSession = session
+        Log.d(TAG, "Cast load result: $result")
         result
+
       } catch (e: Exception) {
         Log.e(TAG, "Google Cast failed: ${e.message}", e)
         false
       }
     }
 
-  fun pause() { activeSession?.remoteMediaClient?.pause() }
-  fun stop() { activeSession?.remoteMediaClient?.stop(); activeSession = null }
+  fun pause() {
+    activeSession?.remoteMediaClient?.pause()
+  }
+
+  fun stop() {
+    activeSession?.remoteMediaClient?.stop()
+    activeSession = null
+  }
+
   fun isConnected(): Boolean = activeSession?.isConnected == true
 
   private suspend fun awaitCastSession(cc: CastContext, timeoutMs: Long): CastSession? =
     withContext(Dispatchers.Main) {
       cc.sessionManager.currentCastSession?.let { return@withContext it }
 
-      val deferred = CompletableDeferred<CastSession?>()
+      suspendCancellableCoroutine { cont ->
+        val listener = object : SessionManagerListener<CastSession> {
+          override fun onSessionStarted(session: CastSession, sessionId: String) {
+            cc.sessionManager.removeSessionManagerListener(this, CastSession::class.java)
+            if (cont.isActive) cont.resume(session)
+          }
+          override fun onSessionStartFailed(session: CastSession, error: Int) {
+            cc.sessionManager.removeSessionManagerListener(this, CastSession::class.java)
+            if (cont.isActive) cont.resume(null)
+          }
+          override fun onSessionEnded(session: CastSession, error: Int) {}
+          override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {}
+          override fun onSessionResumeFailed(session: CastSession, error: Int) {}
+          override fun onSessionSuspended(session: CastSession, reason: Int) {}
+          override fun onSessionEnding(session: CastSession) {}
+          override fun onSessionResuming(session: CastSession, sessionId: String) {}
+          override fun onSessionStarting(session: CastSession) {}
+        }
+        cc.sessionManager.addSessionManagerListener(listener, CastSession::class.java)
 
-      val listener = object : SessionManagerListener<CastSession> {
-        override fun onSessionStarted(s: CastSession, id: String) {
-          cc.sessionManager.removeSessionManagerListener(this, CastSession::class.java)
-          deferred.complete(s)
-        }
-        override fun onSessionStartFailed(s: CastSession, e: Int) {
-          cc.sessionManager.removeSessionManagerListener(this, CastSession::class.java)
-          deferred.complete(null)
-        }
-        override fun onSessionEnded(s: CastSession, e: Int) {}
-        override fun onSessionResumed(s: CastSession, w: Boolean) {}
-        override fun onSessionResumeFailed(s: CastSession, e: Int) {}
-        override fun onSessionSuspended(s: CastSession, r: Int) {}
-        override fun onSessionEnding(s: CastSession) {}
-        override fun onSessionResuming(s: CastSession, id: String) {}
-        override fun onSessionStarting(s: CastSession) {}
+        Handler(Looper.getMainLooper()).postDelayed({
+          cc.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
+          if (cont.isActive) cont.resume(null)
+        }, timeoutMs)
       }
-
-      cc.sessionManager.addSessionManagerListener(listener, CastSession::class.java)
-      Handler(Looper.getMainLooper()).postDelayed({
-        cc.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
-        deferred.complete(null)
-      }, timeoutMs)
-
-      deferred.await()
     }
 }
