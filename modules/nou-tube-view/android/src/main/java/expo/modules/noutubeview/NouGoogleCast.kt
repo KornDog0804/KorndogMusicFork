@@ -1,6 +1,8 @@
 package expo.modules.noutubeview
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
@@ -8,6 +10,9 @@ import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
+import com.google.android.gms.cast.CastMediaControlIntent
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -20,40 +25,35 @@ class NouGoogleCast(private val context: Context) {
   private var castContext: CastContext? = null
   private var activeSession: CastSession? = null
 
-  /**
-   * Initialize Cast context — must be called on main thread
-   */
   fun init() {
     try {
       castContext = CastContext.getSharedInstance(context)
       Log.d(TAG, "CastContext initialized")
     } catch (e: Exception) {
-      Log.e(TAG, "CastContext init failed (no Google Play Services?): ${e.message}")
+      Log.e(TAG, "CastContext init failed: ${e.message}")
     }
   }
 
   /**
    * Discover nearby Chromecast / Google TV devices via MediaRouter
-   * Returns list of device maps with "name" and "type" = "googlecast"
    */
   suspend fun discoverDevices(): List<Map<String, String>> = withContext(Dispatchers.Main) {
-    val cc = castContext ?: return@withContext emptyList()
-    val router = androidx.mediarouter.media.MediaRouter.getInstance(context)
-    val selector = androidx.mediarouter.media.MediaRouteSelector.Builder()
-      .addControlCategory(com.google.android.gms.cast.framework.media.RemoteMediaClient.CATEGORY_CAST_REMOTE_PLAYBACK)
+    val cc = castContext ?: return@withContext emptyList<Map<String, String>>()
+
+    val selector = MediaRouteSelector.Builder()
+      .addControlCategory(
+        CastMediaControlIntent.categoryForCast(
+          CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
+        )
+      )
       .build()
 
-    val routes = router.routes.filter { route ->
-      route.matchesSelector(selector) && !route.isDefault && !route.isBluetooth
-    }
-
-    routes.map { route ->
-      mapOf(
-        "name" to route.name,
-        "id"   to route.id,
-        "type" to "googlecast"
-      )
-    }
+    val router = MediaRouter.getInstance(context)
+    router.routes
+      .filter { route -> route.matchesSelector(selector) && !route.isDefault && !route.isBluetooth }
+      .map { route ->
+        mapOf("name" to route.name, "id" to route.id, "type" to "googlecast")
+      }
   }
 
   /**
@@ -67,25 +67,23 @@ class NouGoogleCast(private val context: Context) {
       }
 
       try {
-        val router = androidx.mediarouter.media.MediaRouter.getInstance(context)
+        val router = MediaRouter.getInstance(context)
         val route = router.routes.find { it.id == routeId } ?: run {
           Log.e(TAG, "Route $routeId not found")
           return@withContext false
         }
 
-        // Select the route (connects to the device)
         router.selectRoute(route)
 
-        // Wait for session to connect (up to 10 seconds)
         val session = awaitCastSession(cc, timeoutMs = 10_000) ?: run {
           Log.e(TAG, "Session never connected")
           return@withContext false
         }
 
-        // Build media info from the direct stream URL
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
           putString(MediaMetadata.KEY_TITLE, title)
         }
+
         val mediaInfo = MediaInfo.Builder(streamUrl)
           .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
           .setContentType("video/mp4")
@@ -97,19 +95,18 @@ class NouGoogleCast(private val context: Context) {
           .setAutoplay(true)
           .build()
 
-        // Load and play
         val remoteClient = session.remoteMediaClient ?: run {
           Log.e(TAG, "No RemoteMediaClient on session")
           return@withContext false
         }
 
         val result = suspendCancellableCoroutine<Boolean> { cont ->
-          remoteClient.load(loadRequest).setResultCallback { result ->
-            cont.resume(!result.status.isInterrupted && result.status.isSuccess)
+          remoteClient.load(loadRequest).setResultCallback { mediaResult ->
+            cont.resume(mediaResult.status.isSuccess)
           }
         }
 
-        activeSession = session
+        if (result) activeSession = session
         Log.d(TAG, "Cast load result: $result")
         result
 
@@ -130,11 +127,8 @@ class NouGoogleCast(private val context: Context) {
 
   fun isConnected(): Boolean = activeSession?.isConnected == true
 
-  // ---- Private helpers ----
-
   private suspend fun awaitCastSession(cc: CastContext, timeoutMs: Long): CastSession? =
     withContext(Dispatchers.Main) {
-      // Already have one?
       cc.sessionManager.currentCastSession?.let { return@withContext it }
 
       suspendCancellableCoroutine { cont ->
@@ -157,10 +151,10 @@ class NouGoogleCast(private val context: Context) {
         }
         cc.sessionManager.addSessionManagerListener(listener, CastSession::class.java)
 
-        // Timeout fallback
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        Handler(Looper.getMainLooper()).postDelayed({
           cc.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
           if (cont.isActive) cont.resume(null)
         }, timeoutMs)
       }
     }
+}
