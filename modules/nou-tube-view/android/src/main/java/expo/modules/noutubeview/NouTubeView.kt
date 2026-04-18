@@ -102,7 +102,7 @@ tp-yt-paper-listbox { background: #2d1450 !important; }
 ytmusic-dialog { background: #2d1450 !important; }
 yt-button-renderer[button-next] a { color: #39ff14 !important; }
 .toggle-button { color: #39ff14 !important; }
-#korndog-cast-btn { position:fixed; top:12px; right:56px; z-index:99999; width:36px; height:36px; border-radius:8px; background:transparent; border:none; box-shadow:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; line-height:1; transition:transform 0.15s,opacity 0.15s; opacity:0.85; }
+#korndog-cast-btn { position:fixed; top:12px; right:110px; z-index:99999; width:36px; height:36px; border-radius:8px; background:transparent; border:none; box-shadow:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; line-height:1; transition:transform 0.15s,opacity 0.15s; opacity:0.85; }
 #korndog-cast-btn:active { transform:scale(0.92); }
 #korndog-cast-btn.connected { background:#2d1450; border-color:#39ff14; box-shadow:0 0 20px #39ff14; }
 #korndog-cast-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,10,46,0.97); z-index:100000; flex-direction:column; align-items:center; justify-content:center; padding:24px; box-sizing:border-box; }
