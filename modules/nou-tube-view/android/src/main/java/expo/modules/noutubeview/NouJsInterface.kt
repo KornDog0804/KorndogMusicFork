@@ -11,6 +11,15 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
   private val TAG = "NouJsInterface"
 
+  // Google Cast handler
+  private val googleCast: NouGoogleCast by lazy {
+    NouGoogleCast(context).also { it.init() }
+  }
+
+  // Track device type per index in the combined list shown to user
+  private val deviceTypeMap = mutableMapOf<Int, String>()  // "googlecast" or "dlna"
+  private val castRouteIds  = mutableMapOf<Int, String>()  // routeId for googlecast entries
+
   @JavascriptInterface
   fun onMessage(payload: String) {
     view.onMessage(mapOf("payload" to payload))
@@ -27,21 +36,42 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   }
 
   // ============================================
-  // KORNDOG CAST - DLNA Methods
+  // KORNDOG CAST — DLNA + Google Cast
   // ============================================
 
   @JavascriptInterface
   fun discoverDevices() {
     scope.launch {
       try {
-        val devices = view.nouCast.discoverDevices()
+        deviceTypeMap.clear()
+        castRouteIds.clear()
+
         val jsonArray = JSONArray()
-        for (device in devices) {
+        var idx = 0
+
+        // 1. Google Cast devices (Chromecast / Google TV)
+        val castDevices = googleCast.discoverDevices()
+        for (device in castDevices) {
           val obj = JSONObject()
-          obj.put("name", device["name"])
-          obj.put("location", device["location"])
+          obj.put("name", "\uD83D\uDCFA ${device["name"]} (Cast)")
+          obj.put("location", device["id"] ?: "")
           jsonArray.put(obj)
+          deviceTypeMap[idx] = "googlecast"
+          castRouteIds[idx] = device["id"] ?: ""
+          idx++
         }
+
+        // 2. DLNA devices (Onn, Fire Stick, etc.)
+        val dlnaDevices = view.nouCast.discoverDevices()
+        for (device in dlnaDevices) {
+          val obj = JSONObject()
+          obj.put("name", "\uD83D\uDCE1 ${device["name"]} (DLNA)")
+          obj.put("location", device["location"] ?: "")
+          jsonArray.put(obj)
+          deviceTypeMap[idx] = "dlna"
+          idx++
+        }
+
         val jsonStr = jsonArray.toString().replace("\\", "\\\\").replace("'", "\\'")
         view.currentActivity?.runOnUiThread {
           view.webView.evaluateJavascript("window.kdShowDevices('$jsonStr')", null)
@@ -59,16 +89,22 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   fun selectAndCast(deviceIndex: Int) {
     scope.launch {
       try {
-        val selected = view.nouCast.selectDevice(deviceIndex)
-        if (!selected) {
-          callCastResult(false, "")
-          return@launch
+        val type = deviceTypeMap[deviceIndex] ?: "dlna"
+        val deviceName: String
+
+        if (type == "googlecast") {
+          val routeId = castRouteIds[deviceIndex] ?: run {
+            callCastResult(false, "")
+            return@launch
+          }
+          deviceName = "Google TV"
+          castCurrentVideoGoogle(routeId, deviceName)
+        } else {
+          val selected = view.nouCast.selectDevice(deviceIndex - (castRouteIds.size))
+          if (!selected) { callCastResult(false, ""); return@launch }
+          deviceName = view.nouCast.getSelectedDevice()?.get("name") ?: "TV"
+          castCurrentVideo(deviceName)
         }
-
-        val deviceInfo = view.nouCast.getSelectedDevice()
-        val deviceName = deviceInfo?.get("name") ?: "TV"
-
-        castCurrentVideo(deviceName)
       } catch (e: Exception) {
         Log.e(TAG, "Cast failed: ${e.message}", e)
         callCastResult(false, "")
@@ -76,17 +112,20 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
     }
   }
 
+  // Alias methods called by the JS castAdFree / castIpAdFree buttons
+  @JavascriptInterface
+  fun castAdFree(deviceIndex: Int) = selectAndCast(deviceIndex)
+
+  @JavascriptInterface
+  fun castIpAdFree(ip: String) = castToIp(ip)
+
   @JavascriptInterface
   fun castToIp(ip: String) {
     scope.launch {
       try {
-        Log.d(TAG, "Attempting direct cast to IP: $ip")
+        Log.d(TAG, "Attempting direct DLNA cast to IP: $ip")
         val connected = view.nouCast.connectToIp(ip)
-        if (!connected) {
-          callCastResult(false, ip)
-          return@launch
-        }
-
+        if (!connected) { callCastResult(false, ip); return@launch }
         castCurrentVideo(ip)
       } catch (e: Exception) {
         Log.e(TAG, "Direct IP cast failed: ${e.message}", e)
@@ -95,52 +134,12 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
     }
   }
 
-  private suspend fun castCurrentVideo(deviceName: String) {
-    // Get current page URL
-    var pageUrl = ""
-    withContext(Dispatchers.Main) {
-      pageUrl = view.getPageUrl()
-    }
-
-    if (pageUrl.isEmpty()) {
-      Log.e(TAG, "No page URL available")
-      callCastResult(false, deviceName)
-      return
-    }
-
-    // Extract direct stream URL using yt-dlp
-    Log.d(TAG, "Extracting stream URL for: $pageUrl")
-    val ytDlp = NouYtDlp(context)
-    ytDlp.ensureYoutubeDLInitialized()
-
-    val streamInfo = ytDlp.getStreamUrl(pageUrl)
-    val streamUrl = streamInfo["url"] ?: ""
-    val title = streamInfo["title"] ?: "NouTube"
-
-    if (streamUrl.isEmpty()) {
-      Log.e(TAG, "Failed to extract stream URL")
-      callCastResult(false, deviceName)
-      return
-    }
-
-    Log.d(TAG, "Got stream URL, casting to $deviceName")
-
-    // Cast the direct stream URL to the TV
-    val success = view.nouCast.castUrl(streamUrl, title)
-    callCastResult(success, deviceName)
-  }
-
-  @JavascriptInterface
-  fun castAdFree(deviceIndex: Int) = selectAndCast(deviceIndex)
-
-  @JavascriptInterface
-  fun castIpAdFree(ip: String) = castToIp(ip)
-
   @JavascriptInterface
   fun pauseCast() {
     scope.launch {
       try {
-        view.nouCast.pause()
+        if (googleCast.isConnected()) googleCast.pause()
+        else view.nouCast.pause()
       } catch (e: Exception) {
         Log.e(TAG, "Pause failed: ${e.message}", e)
       }
@@ -151,20 +150,52 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   fun stopCast() {
     scope.launch {
       try {
-        view.nouCast.stop()
+        if (googleCast.isConnected()) googleCast.stop()
+        else view.nouCast.stop()
       } catch (e: Exception) {
         Log.e(TAG, "Stop failed: ${e.message}", e)
       }
     }
   }
 
+  // ---- Private helpers ----
+
+  private suspend fun castCurrentVideo(deviceName: String) {
+    var pageUrl = ""
+    withContext(Dispatchers.Main) { pageUrl = view.getPageUrl() }
+    if (pageUrl.isEmpty()) { callCastResult(false, deviceName); return }
+
+    val ytDlp = NouYtDlp(context)
+    ytDlp.ensureYoutubeDLInitialized()
+    val streamInfo = ytDlp.getStreamUrl(pageUrl)
+    val streamUrl = streamInfo["url"] ?: ""
+    val title = streamInfo["title"] ?: "NouTube"
+    if (streamUrl.isEmpty()) { callCastResult(false, deviceName); return }
+
+    val success = view.nouCast.castUrl(streamUrl, title)
+    callCastResult(success, deviceName)
+  }
+
+  private suspend fun castCurrentVideoGoogle(routeId: String, deviceName: String) {
+    var pageUrl = ""
+    withContext(Dispatchers.Main) { pageUrl = view.getPageUrl() }
+    if (pageUrl.isEmpty()) { callCastResult(false, deviceName); return }
+
+    val ytDlp = NouYtDlp(context)
+    ytDlp.ensureYoutubeDLInitialized()
+    val streamInfo = ytDlp.getStreamUrl(pageUrl)
+    val streamUrl = streamInfo["url"] ?: ""
+    val title = streamInfo["title"] ?: "NouTube"
+    if (streamUrl.isEmpty()) { callCastResult(false, deviceName); return }
+
+    val success = googleCast.castUrl(routeId, streamUrl, title)
+    callCastResult(success, deviceName)
+  }
+
   private fun callCastResult(success: Boolean, deviceName: String) {
     val safeName = deviceName.replace("'", "\\'")
     view.currentActivity?.runOnUiThread {
-      view.webView.evaluateJavascript(
-        "window.kdCastResult($success, '$safeName')",
-        null
-      )
+      view.webView.evaluateJavascript("window.kdCastResult($success, '$safeName')", null)
     }
   }
 }
