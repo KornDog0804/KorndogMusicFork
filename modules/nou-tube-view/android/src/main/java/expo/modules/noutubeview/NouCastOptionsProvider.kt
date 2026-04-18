@@ -5,19 +5,12 @@ import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.OptionsProvider
 import com.google.android.gms.cast.framework.SessionProvider
 
-/**
- * Required by the Google Cast SDK.
- * Uses the default media receiver so no custom Cast app ID is needed.
- */
 class NouCastOptionsProvider : OptionsProvider {
 
   override fun getCastOptions(context: Context): CastOptions {
+    // "CC1AD845" is the Default Media Receiver app ID
     return CastOptions.Builder()
-      // Default Media Receiver — works with any Chromecast / Google TV
-      // without needing a registered Cast App ID
-      .setReceiverApplicationId(
-        com.google.android.gms.cast.framework.CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
-      )
+      .setReceiverApplicationId("CC1AD845")
       .build()
   }
 
