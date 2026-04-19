@@ -18,15 +18,9 @@ react {
 }
 
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
-
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
-ext.abiCodes = [
-    x86:1,
-    x86_64:2,
-    'armeabi-v7a':3,
-    'arm64-v8a':4
-]
+ext.abiCodes = [x86:1, x86_64:2, 'armeabi-v7a':3, 'arm64-v8a':4]
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -43,16 +37,11 @@ android {
         versionName "0.5.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        resourceConfigurations += ["en", "de", "fr", "id", "b+pt+BR", "ru", "b+zh+Hans"]
 
-        resourceConfigurations += [
-            "en",
-            "de",
-            "fr",
-            "id",
-            "b+pt+BR",
-            "ru",
-            "b+zh+Hans"
-        ]
+        ndk {
+            abiFilters "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -68,15 +57,11 @@ android {
         debug {
             signingConfig signingConfigs.debug
         }
-
         release {
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
-
             minifyEnabled enableMinifyInReleaseBuilds
-
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
         }
@@ -87,6 +72,20 @@ android {
             def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
             useLegacyPackaging enableLegacyPackaging.toBoolean()
         }
+
+        resources {
+            excludes += [
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/DEPENDENCIES",
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1",
+                "META-INF/*.kotlin_module"
+            ]
+        }
+
+        doNotStrip "**/libffmpeg.zip.so"
+        doNotStrip "**/libpython.zip.so"
     }
 
     androidResources {
@@ -98,7 +97,6 @@ android {
         includeInBundle = false
     }
 
-    // ARM64 ONLY BUILD 🔥
     splits {
         abi {
             reset()
@@ -111,11 +109,9 @@ android {
     android.applicationVariants.configureEach { variant ->
         variant.outputs.each { output ->
             def abi = output.getFilter(com.android.build.OutputFile.ABI)
-
             if (abi == "arm64-v8a") {
                 def baseAbiVersionCode = project.ext.abiCodes.get("arm64-v8a")
-                output.versionCodeOverride =
-                        (100 * project.android.defaultConfig.versionCode) + baseAbiVersionCode
+                output.versionCodeOverride = (100 * project.android.defaultConfig.versionCode) + baseAbiVersionCode
             }
         }
     }
@@ -123,11 +119,7 @@ android {
 
 ["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
     def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",")
-
-    for (i in 0..<options.size()) {
-        options[i] = options[i].trim()
-    }
-
+    for (i in 0..<options.size()) options[i] = options[i].trim()
     options -= ""
 
     if (options.length > 0) {
@@ -150,7 +142,6 @@ dependencies {
 
     if (isWebpEnabled) {
         implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
-
         if (isWebpAnimatedEnabled) {
             implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
         }
