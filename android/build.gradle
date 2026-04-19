@@ -26,6 +26,4 @@ allprojects {
         mavenCentral()
         maven { url "$rootDir/../node_modules/react-native/android" }
     }
-    // Make hermesEnabled available to all subprojects including expo-modules-core
-    ext.hermesEnabled = (findProperty('hermesEnabled') ?: 'true').toBoolean()
 }
