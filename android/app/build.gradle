@@ -68,10 +68,13 @@ android {
         }
     }
 
-    packagingOptions {
+    packaging {
         jniLibs {
-            useLegacyPackaging true
-            pickFirsts += ["**/*.so"]
+            useLegacyPackaging = true
+            keepDebugSymbols += [
+                "**/libffmpeg.zip.so",
+                "**/libpython.zip.so"
+            ]
         }
 
         resources {
@@ -86,22 +89,6 @@ android {
                 "META-INF/io.netty.versions.properties"
             ]
         }
-
-        pickFirsts += [
-            "**/libc++_shared.so",
-            "**/libfbjni.so",
-            "**/libjsi.so",
-            "**/libreactnative.so",
-            "**/libhermes.so",
-            "**/libhermes_executor.so",
-            "**/libffmpeg.zip.so",
-            "**/libpython.zip.so"
-        ]
-
-        doNotStrip += [
-            "**/libffmpeg.zip.so",
-            "**/libpython.zip.so"
-        ]
     }
 
     androidResources {
