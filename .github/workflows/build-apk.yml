@@ -72,6 +72,7 @@ jobs:
           android.enableJetifier=true
           android.nonTransitiveRClass=true
           hermesEnabled=true
+          newArchEnabled=true
           EOF
 
       - name: Patch android/app/build.gradle
