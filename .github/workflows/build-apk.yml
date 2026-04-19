@@ -49,8 +49,6 @@ jobs:
           def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
           def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
-          ext.abiCodes = ['arm64-v8a': 4]
-
           android {
               ndkVersion rootProject.ext.ndkVersion
               buildToolsVersion rootProject.ext.buildToolsVersion
@@ -67,10 +65,6 @@ jobs:
 
                   buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
                   resourceConfigurations += ["en", "de", "fr", "id", "b+pt+BR", "ru", "b+zh+Hans"]
-
-                  ndk {
-                      abiFilters "arm64-v8a"
-                  }
               }
 
               signingConfigs {
@@ -137,24 +131,6 @@ jobs:
                   includeInApk = false
                   includeInBundle = false
               }
-
-              splits {
-                  abi {
-                      reset()
-                      enable true
-                      include "arm64-v8a"
-                      universalApk false
-                  }
-              }
-
-              android.applicationVariants.configureEach { variant ->
-                  variant.outputs.each { output ->
-                      def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                      if (abi == "arm64-v8a") {
-                          output.versionCodeOverride = (100 * project.android.defaultConfig.versionCode) + 4
-                      }
-                  }
-              }
           }
 
           dependencies {
@@ -214,5 +190,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: korndog-noutube-apk
-          path: android/app/build/outputs/apk/release/*arm64-v8a*.apk
+          path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
