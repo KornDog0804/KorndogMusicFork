@@ -4,6 +4,9 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.mediarouter.media.MediaRouteDiscoveryRequest
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
@@ -11,8 +14,6 @@ import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
-import androidx.mediarouter.media.MediaRouteSelector
-import androidx.mediarouter.media.MediaRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -34,28 +35,95 @@ class NouGoogleCast(private val context: Context) {
     }
   }
 
-  suspend fun discoverDevices(): List<Map<String, String>> = withContext(Dispatchers.Main) {
-    val cc = castContext ?: return@withContext emptyList()
+  /**
+   * Actively discover Google Cast / Chromecast / Google TV / Onn devices.
+   * This is stronger than just reading router.routes once.
+   */
+  suspend fun discoverDevices(timeoutMs: Long = 2500L): List<Map<String, String>> =
+    withContext(Dispatchers.Main) {
+      val cc = castContext ?: return@withContext emptyList()
 
-    val selector = MediaRouteSelector.Builder()
-      .addControlCategory(
-        CastMediaControlIntent.categoryForCast(
-          CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
+      val selector = MediaRouteSelector.Builder()
+        .addControlCategory(
+          CastMediaControlIntent.categoryForCast(
+            CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
+          )
         )
-      )
-      .build()
+        .build()
 
-    val router = MediaRouter.getInstance(context)
-    router.routes
-      .filter { route -> route.matchesSelector(selector) && !route.isDefault && !route.isBluetooth }
-      .map { route ->
-        mapOf(
-          "name" to route.name,
-          "id" to route.id,
-          "type" to "googlecast"
-        )
+      val router = MediaRouter.getInstance(context)
+      val foundRoutes = linkedMapOf<String, MediaRouter.RouteInfo>()
+
+      fun addRoute(route: MediaRouter.RouteInfo?) {
+        if (route == null) return
+        if (!route.matchesSelector(selector)) return
+        if (route.isDefault) return
+        if (route.isBluetooth) return
+        foundRoutes[route.id] = route
       }
-  }
+
+      // Grab anything already visible immediately
+      router.routes.forEach { addRoute(it) }
+
+      suspendCancellableCoroutine<List<Map<String, String>>> { cont ->
+        val callback = object : MediaRouter.Callback() {
+          override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
+            addRoute(route)
+          }
+
+          override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
+            addRoute(route)
+          }
+
+          override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
+            foundRoutes.remove(route.id)
+          }
+        }
+
+        val request = MediaRouteDiscoveryRequest(selector, true)
+        val handler = Handler(Looper.getMainLooper())
+
+        val finish = Runnable {
+          try {
+            router.removeCallback(callback)
+          } catch (_: Exception) {
+          }
+
+          val result = foundRoutes.values.map { route ->
+            mapOf(
+              "name" to route.name,
+              "id" to route.id,
+              "type" to "googlecast"
+            )
+          }
+
+          Log.d(TAG, "Discovered ${result.size} Google Cast device(s)")
+          if (cont.isActive) cont.resume(result)
+        }
+
+        try {
+          router.addCallback(
+            request,
+            callback,
+            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY
+          )
+        } catch (e: Exception) {
+          Log.e(TAG, "Failed to start route discovery: ${e.message}", e)
+          if (cont.isActive) cont.resume(emptyList())
+          return@suspendCancellableCoroutine
+        }
+
+        handler.postDelayed(finish, timeoutMs)
+
+        cont.invokeOnCancellation {
+          handler.removeCallbacks(finish)
+          try {
+            router.removeCallback(callback)
+          } catch (_: Exception) {
+          }
+        }
+      }
+    }
 
   suspend fun castUrl(routeId: String, streamUrl: String, title: String): Boolean =
     withContext(Dispatchers.Main) {
@@ -106,6 +174,9 @@ class NouGoogleCast(private val context: Context) {
 
         if (success) {
           activeSession = session
+          Log.d(TAG, "Google Cast started successfully on route: $routeId")
+        } else {
+          Log.e(TAG, "Google Cast load request failed")
         }
 
         success
