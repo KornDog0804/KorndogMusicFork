@@ -51,6 +51,13 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+
+        release {
+            storeFile file('korndog-release.keystore')
+            storePassword 'KornDog2024!'
+            keyAlias 'korndog'
+            keyPassword 'KornDog2024!'
+        }
     }
 
     buildTypes {
@@ -58,6 +65,8 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
+            signingConfig signingConfigs.release
+
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
