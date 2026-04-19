@@ -163,6 +163,7 @@ jobs:
               def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true"
               def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true"
               def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true"
+              def useHermes = (findProperty('hermesEnabled') ?: "true").toBoolean()
 
               if (isGifEnabled) {
                   implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
@@ -175,7 +176,7 @@ jobs:
                   }
               }
 
-              if (hermesEnabled.toBoolean()) {
+              if (useHermes) {
                   implementation("com.facebook.react:hermes-android")
               } else {
                   implementation jscFlavor
