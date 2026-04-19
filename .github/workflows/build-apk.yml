@@ -26,9 +26,9 @@ jobs:
       - name: Prebuild Android
         run: yarn expo prebuild -p android --clean --no-install
 
-      - name: Patch root android/build.gradle
+      - name: Patch android/build.gradle
         run: |
-          cat > android/build.gradle <<'EOF'
+          cat > android/build.gradle << 'EOF'
           buildscript {
               ext {
                   buildToolsVersion = findProperty('android.buildToolsVersion') ?: '35.0.0'
@@ -49,7 +49,6 @@ jobs:
                   classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
               }
           }
-
           allprojects {
               repositories {
                   maven { url 'https://jitpack.io' }
@@ -60,41 +59,9 @@ jobs:
           }
           EOF
 
-      - name: Patch android/settings.gradle
-        run: |
-          cat > android/settings.gradle <<'EOF'
-          pluginManagement {
-            includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"].execute().text.trim()).parentFile)
-          }
-
-          plugins {
-            id("com.facebook.react.settings")
-          }
-
-          extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-            ex.autolinkLibrariesFromCommand()
-          }
-
-          rootProject.name = 'KorndogMusicFork'
-
-          dependencyResolutionManagement {
-            versionCatalogs {
-              reactAndroidLibs {
-                from(files(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"].execute().text.trim(), "../react-native.versions")))
-              }
-            }
-          }
-
-          apply from: new File(["node", "--print", "require.resolve('expo/package.json')"].execute().text.trim(), "../scripts/autolinking.gradle");
-          useExpoModules()
-
-          include ':app'
-          includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"].execute().text.trim()).parentFile)
-          EOF
-
       - name: Patch android/gradle.properties
         run: |
-          cat > android/gradle.properties <<'EOF'
+          cat > android/gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx7g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8 -Dkotlin.daemon.jvm.options=-Xmx2g
           org.gradle.daemon=false
           org.gradle.parallel=false
@@ -109,7 +76,7 @@ jobs:
 
       - name: Patch android/app/build.gradle
         run: |
-          cat > android/app/build.gradle <<'EOF'
+          cat > android/app/build.gradle << 'EOF'
           apply plugin: "com.android.application"
           apply plugin: "org.jetbrains.kotlin.android"
           apply plugin: "com.facebook.react"
@@ -165,7 +132,6 @@ jobs:
                       keyAlias 'androiddebugkey'
                       keyPassword 'android'
                   }
-
                   release {
                       storeFile file('korndog-release.keystore')
                       storePassword 'KornDog2024!'
@@ -180,12 +146,10 @@ jobs:
                   }
                   release {
                       signingConfig signingConfigs.release
-
                       def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
                       shrinkResources enableShrinkResources.toBoolean()
                       minifyEnabled enableMinifyInReleaseBuilds
                       proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-
                       def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
                       crunchPngs enablePngCrunchInRelease.toBoolean()
                   }
@@ -199,7 +163,6 @@ jobs:
                           "**/libpython.zip.so"
                       ]
                   }
-
                   resources {
                       excludes += [
                           "META-INF/LICENSE*",
@@ -252,14 +215,12 @@ jobs:
               if (isGifEnabled) {
                   implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
               }
-
               if (isWebpEnabled) {
                   implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
                   if (isWebpAnimatedEnabled) {
                       implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
                   }
               }
-
               if (project.ext.hermesEnabled) {
                   implementation("com.facebook.react:hermes-android")
               } else {
@@ -268,24 +229,19 @@ jobs:
           }
           EOF
 
+      - name: Patch expo-modules-core hermesEnabled
+        run: |
+          EXPO_CORE=$(find node_modules/expo-modules-core/android -name "build.gradle" | head -1)
+          if [ -f "$EXPO_CORE" ]; then
+            sed -i 's/project(\":app\")\.hermesEnabled/(findProperty("hermesEnabled") ?: "true").toBoolean()/g' "$EXPO_CORE"
+            sed -i 's/project('"'"':app'"'"')\.hermesEnabled/(findProperty("hermesEnabled") ?: "true").toBoolean()/g' "$EXPO_CORE"
+            echo "Patched expo-modules-core build.gradle"
+            grep -n "hermes" "$EXPO_CORE"
+          fi
+
       - name: Setup signing
         run: |
           echo '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' | base64 -d > android/app/korndog-release.keystore
-
-      - name: Build APK
-        run: |
-          chmod +x android/gradlew
-          cd android
-          ./gradlew assembleRelease --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx7g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8"
-        env:
-          GRADLE_OPTS: "-Xmx7g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: korndog-noutube-apk
-          path: android/app/build/outputs/apk/release/*.apk
-          retention-days: 30qA1yMyuapyr+GhUujd4zT15mQCTV3F2cwWSXZsQ+ZcOCAdrQVhdVK/7cqeQ18DEdbtX+78RwnHcNHylDKa9QuVNJlGm2lAg21q1Wci2TZ6UHPKHyvGgKVZuGI5H7Ydht9gdXkn01LiOAHXGnCaG0Y4eqCCmtR2ZJMP11IZAlXyHYKlZTbhXM9TieFmdAEy5dUVTiztIKdRbgXWD+ZQygDrfQvoBwMabEcH+4pW0X16hdX3F0mzBhYF2ecPrkGjYLuT7qcqyEqNKcgmbc2m1S2ooWyqM6OTke0la+8qnQ+xtx0bY2zU8OPOCoujbhC+VM7N6dgZ83/PUGNUa+RgomXBAhhNHCvl6Yc1aIOnHB9dalcCeE5bEgcptLyw+Zps4T4GvpZnC3GGmUmA28RYPJy+9xcf2pbJIGcFYnwUNUwy9WsBOSwhaUhd7B8FOHMsD2PYo3GepUi1MuAOnRnKWLVQoIx8bMSLUQAKQGNvvqthxKG8Bq8PEBsT9uC75AU1j4c/4YlnARuebtxD7RMOZywx6DY/OYYSUJOjh9370amMCY43nuRabSeqdaFANGpvbIY5e98RlyHCbER68Q80FKHOKT/rqaCrYv0OcnUUDXYfsN6fJj86rOJ1lHpNYa5qhgvq9suKFmOtHipl/O6QRhVx1ZzVuE25S8cSDOXBzCGG7bZHQgxkhS5mAUkMGWTwxe55qyKJyv5laFQJuIHUDApyDRGAi15JaME0wMTANBglghkgBZQMEAgEFAAQgnQQ39vtLaxdip3ASGB6+cX1v+I7SKsRjmKIVsq27j8sEFMhhbOB3xj2A/WE09uagM0+8KAiTAgInEA==' | base64 -d > android/app/korndog-release.keystore
 
       - name: Build APK
         run: |
