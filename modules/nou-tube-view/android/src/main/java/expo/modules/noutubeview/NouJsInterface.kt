@@ -20,9 +20,11 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
     NouGoogleCast(context).also { it.init() }
   }
 
-  // UI list only. Do not use NouCast's CastDevice class here.
+  // UI device list only. Keep this separate from NouCast's internal CastDevice model.
   private val devices = mutableListOf<Map<String, String>>()
   private var lastDeviceId: String? = null
+  private var lastDeviceType: String? = null
+  private var lastDeviceName: String? = null
 
   @JavascriptInterface
   fun onMessage(payload: String) {
@@ -39,6 +41,11 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
     view.notifyProgress(playing, pos)
   }
 
+  /**
+   * Discover Google Cast first, then DLNA.
+   * This keeps Google / Onn / Chromecast devices as the preferred path,
+   * with DLNA + Fire Stick/AirScreen as the fallback lane.
+   */
   @JavascriptInterface
   fun discoverDevices() {
     scope.launch {
@@ -46,22 +53,36 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
         devices.clear()
         val jsonArray = JSONArray()
 
-        // Google Cast first
+        // 1) Google Cast devices first
         val castDevices = googleCast.discoverDevices()
         for (d in castDevices) {
           val device = mapOf(
-            "name" to "📺 ${d["name"] ?: "Google Cast"} (Best)",
+            "name" to "📺 ${d["name"] ?: "Google Cast"}",
             "type" to "googlecast",
             "id" to (d["id"] ?: "")
           )
           devices.add(device)
         }
 
-        // DLNA second
+        // 2) DLNA devices second
         val dlnaDevices = view.nouCast.discoverDevices()
         for (d in dlnaDevices) {
+          val rawName = d["name"] ?: "DLNA Device"
+          val lowerName = rawName.lowercase()
+
+          val prettyName =
+            if (
+              lowerName.contains("fire") ||
+              lowerName.contains("aft") ||
+              lowerName.contains("airscreen")
+            ) {
+              "📡 $rawName (Fire Stick / AirScreen)"
+            } else {
+              "📡 $rawName (DLNA)"
+            }
+
           val device = mapOf(
-            "name" to "📡 ${d["name"] ?: "DLNA Device"} (Limited)",
+            "name" to prettyName,
             "type" to "dlna",
             "id" to (d["location"] ?: "")
           )
@@ -82,16 +103,32 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
 
         view.currentActivity?.runOnUiThread {
           view.webView.evaluateJavascript("window.kdShowDevices('$jsonStr')", null)
+
+          if (devices.isEmpty()) {
+            view.webView.evaluateJavascript(
+              "window.kdSetStatus && window.kdSetStatus('No Google Cast or DLNA devices found. Fire Stick users: install AirScreen and keep it open, then try again or enter your TV IP address.')",
+              null
+            )
+          }
         }
       } catch (e: Exception) {
         Log.e(TAG, "Device discovery failed: ${e.message}", e)
         view.currentActivity?.runOnUiThread {
           view.webView.evaluateJavascript("window.kdShowDevices('[]')", null)
+          view.webView.evaluateJavascript(
+            "window.kdSetStatus && window.kdSetStatus('Device discovery failed. Fire Stick users: install AirScreen and keep it open, then try again.')",
+            null
+          )
         }
       }
     }
   }
 
+  /**
+   * User chose a discovered device from the overlay.
+   * Google Cast route IDs are handled by NouGoogleCast.
+   * DLNA locations are handled by NouCast.
+   */
   @JavascriptInterface
   fun selectAndCast(index: Int) {
     scope.launch {
@@ -118,6 +155,8 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
 
         if (success) {
           lastDeviceId = id
+          lastDeviceType = type
+          lastDeviceName = name
         }
 
         callCastResult(success, name)
@@ -131,6 +170,10 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   @JavascriptInterface
   fun castAdFree(deviceIndex: Int) = selectAndCast(deviceIndex)
 
+  /**
+   * Manual IP is DLNA only.
+   * This is the Fire Stick / AirScreen / DLNA fallback lane.
+   */
   @JavascriptInterface
   fun castIpAdFree(ip: String) = castToIp(ip)
 
@@ -144,7 +187,14 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
           callCastResult(false, ip)
           return@launch
         }
+
         val success = castCurrentVideo(ip)
+        if (success) {
+          lastDeviceId = ip
+          lastDeviceType = "dlna"
+          lastDeviceName = ip
+        }
+
         callCastResult(success, ip)
       } catch (e: Exception) {
         Log.e(TAG, "Direct IP cast failed: ${e.message}", e)
@@ -153,12 +203,47 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
     }
   }
 
+  /**
+   * Auto-cast to the last successful device.
+   * Google Cast stays Google Cast.
+   * DLNA stays DLNA.
+   */
+  @JavascriptInterface
+  fun autoCast() {
+    scope.launch {
+      try {
+        val id = lastDeviceId ?: return@launch
+        val type = lastDeviceType ?: return@launch
+        val name = lastDeviceName ?: "TV"
+
+        val success = when (type) {
+          "googlecast" -> castCurrentVideoGoogle(id, name)
+          "dlna" -> {
+            val ip = extractIpFromLocation(id)
+            val connected = view.nouCast.connectToIp(ip)
+            if (!connected) false else castCurrentVideo(name)
+          }
+          else -> false
+        }
+
+        if (success) {
+          callCastResult(true, name)
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Auto-cast failed: ${e.message}", e)
+      }
+    }
+  }
+
   @JavascriptInterface
   fun pauseCast() {
     scope.launch {
       try {
-        if (googleCast.isConnected()) googleCast.pause()
-        else view.nouCast.pause()
+        if (googleCast.isConnected()) {
+          googleCast.pause()
+        } else {
+          view.nouCast.pause()
+        }
       } catch (e: Exception) {
         Log.e(TAG, "Pause failed: ${e.message}", e)
       }
@@ -169,8 +254,11 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   fun stopCast() {
     scope.launch {
       try {
-        if (googleCast.isConnected()) googleCast.stop()
-        else view.nouCast.stop()
+        if (googleCast.isConnected()) {
+          googleCast.stop()
+        } else {
+          view.nouCast.stop()
+        }
       } catch (e: Exception) {
         Log.e(TAG, "Stop failed: ${e.message}", e)
       }
@@ -180,6 +268,7 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   private suspend fun castCurrentVideo(deviceName: String): Boolean {
     var pageUrl = ""
     withContext(Dispatchers.Main) { pageUrl = view.getPageUrl() }
+
     if (pageUrl.isEmpty()) {
       return false
     }
@@ -203,6 +292,7 @@ class NouJsInterface(private val context: Context, private val view: NouTubeView
   private suspend fun castCurrentVideoGoogle(routeId: String, deviceName: String): Boolean {
     var pageUrl = ""
     withContext(Dispatchers.Main) { pageUrl = view.getPageUrl() }
+
     if (pageUrl.isEmpty()) {
       return false
     }
