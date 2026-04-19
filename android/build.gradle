@@ -27,3 +27,9 @@ allprojects {
         maven { url "$rootDir/../node_modules/react-native/android" }
     }
 }
+
+subprojects { subproject ->
+    if (subproject.name != 'app') {
+        subproject.evaluationDependsOn(':app')
+    }
+}
