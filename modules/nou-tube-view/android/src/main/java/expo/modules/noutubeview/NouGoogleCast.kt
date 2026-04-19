@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.mediarouter.media.MediaRouteDiscoveryRequest
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.CastMediaControlIntent
@@ -41,7 +40,7 @@ class NouGoogleCast(private val context: Context) {
    */
   suspend fun discoverDevices(timeoutMs: Long = 2500L): List<Map<String, String>> =
     withContext(Dispatchers.Main) {
-      val cc = castContext ?: return@withContext emptyList()
+      castContext ?: return@withContext emptyList()
 
       val selector = MediaRouteSelector.Builder()
         .addControlCategory(
@@ -62,7 +61,6 @@ class NouGoogleCast(private val context: Context) {
         foundRoutes[route.id] = route
       }
 
-      // Grab anything already visible immediately
       router.routes.forEach { addRoute(it) }
 
       suspendCancellableCoroutine<List<Map<String, String>>> { cont ->
@@ -80,7 +78,6 @@ class NouGoogleCast(private val context: Context) {
           }
         }
 
-        val request = MediaRouteDiscoveryRequest(selector, true)
         val handler = Handler(Looper.getMainLooper())
 
         val finish = Runnable {
@@ -103,7 +100,7 @@ class NouGoogleCast(private val context: Context) {
 
         try {
           router.addCallback(
-            request,
+            selector,
             callback,
             MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY
           )
