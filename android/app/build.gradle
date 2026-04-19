@@ -71,6 +71,7 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging true
+            pickFirsts += ["**/*.so"]
         }
 
         resources {
@@ -80,12 +81,27 @@ android {
                 "META-INF/DEPENDENCIES",
                 "META-INF/AL2.0",
                 "META-INF/LGPL2.1",
-                "META-INF/*.kotlin_module"
+                "META-INF/*.kotlin_module",
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties"
             ]
         }
 
-        doNotStrip "**/libffmpeg.zip.so"
-        doNotStrip "**/libpython.zip.so"
+        pickFirsts += [
+            "**/libc++_shared.so",
+            "**/libfbjni.so",
+            "**/libjsi.so",
+            "**/libreactnative.so",
+            "**/libhermes.so",
+            "**/libhermes_executor.so",
+            "**/libffmpeg.zip.so",
+            "**/libpython.zip.so"
+        ]
+
+        doNotStrip += [
+            "**/libffmpeg.zip.so",
+            "**/libpython.zip.so"
+        ]
     }
 
     androidResources {
@@ -112,18 +128,6 @@ android {
             if (abi == "arm64-v8a") {
                 output.versionCodeOverride = (100 * project.android.defaultConfig.versionCode) + 4
             }
-        }
-    }
-}
-
-["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
-    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",")
-    for (i in 0..<options.size()) options[i] = options[i].trim()
-    options -= ""
-
-    if (options.length > 0) {
-        options.each {
-            android.packagingOptions[prop] += it
         }
     }
 }
