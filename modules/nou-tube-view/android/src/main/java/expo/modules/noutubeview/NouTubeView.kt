@@ -336,6 +336,7 @@ val KORNDOG_CAST_SCRIPT = """
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (AudioCtx) {
       var ctx = new AudioCtx();
+      window._kdAudioCtx = ctx;
       var compressor = ctx.createDynamicsCompressor();
       compressor.threshold.value = -35;
       compressor.knee.value = 20;
@@ -374,6 +375,42 @@ val KORNDOG_CAST_SCRIPT = """
       setTimeout(hookAll, 2000);
       setTimeout(hookAll, 5000);
     }
+  }
+
+  // Fix double-tap to play
+  if (!window._kdPlayFixInit) {
+    window._kdPlayFixInit = true;
+    document.addEventListener('touchstart', function() {
+      if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
+        window._kdAudioCtx.resume();
+      }
+    }, { passive: true });
+    var playObserver = new MutationObserver(function() {
+      document.querySelectorAll('ytmusic-responsive-list-item-renderer, ytmusic-queue-item').forEach(function(el) {
+        if (!el._kdPlayFixed) {
+          el._kdPlayFixed = true;
+          el.addEventListener('click', function() {
+            setTimeout(function() {
+              var vid = document.querySelector('video, audio');
+              if (vid && vid.paused) { vid.play().catch(function() {}); }
+              if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
+                window._kdAudioCtx.resume();
+              }
+            }, 300);
+          });
+        }
+      });
+    });
+    playObserver.observe(document.documentElement, { childList: true, subtree: true });
+    document.addEventListener('click', function(e) {
+      var btn = e.target && (e.target.closest('.play-pause-button') || e.target.closest('#play-pause-button') || e.target.closest('tp-yt-paper-icon-button'));
+      if (btn) {
+        setTimeout(function() {
+          var vid = document.querySelector('video, audio');
+          if (vid && vid.paused) { vid.play().catch(function() {}); }
+        }, 200);
+      }
+    }, { passive: true });
   }
 })();
 """.trimIndent()
