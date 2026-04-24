@@ -55,16 +55,6 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
-  /**
-   * Extract direct stream URL for casting.
-   * Priority: best audio (up to 320kbps) in a cast-compatible container.
-   * Format chain:
-   *   1. bestaudio[abr<=320][ext=m4a]  — AAC in M4A, max 320kbps, widest DLNA compat
-   *   2. bestaudio[abr<=320]           — any container at max 320kbps
-   *   3. bestaudio[ext=m4a]            — best AAC regardless of bitrate
-   *   4. bestaudio                     — absolute best audio (opus/webm etc)
-   *   5. best[ext=mp4]/best            — video fallback for non-music content
-   */
   fun getStreamUrl(videoUrl: String): Map<String, String> {
     ensureYoutubeDLInitialized()
 
@@ -88,7 +78,6 @@ internal class NouYtDlp(private val context: Context) {
       return mapOf("url" to directUrl, "title" to title)
     }
 
-    // Fallback: walk formats array picking best audio
     val formats = json.optJSONArray("formats")
     if (formats != null) {
       var bestUrl = ""
@@ -102,7 +91,6 @@ internal class NouYtDlp(private val context: Context) {
         val url = fmt.optString("url", "")
         val ext = fmt.optString("ext", "")
 
-        // Audio-only preferred, up to 320kbps, m4a first
         if (acodec != "none" && vcodec == "none" && abr <= 320 && url.isNotEmpty()) {
           if (abr > bestAbr || (abr == bestAbr && ext == "m4a")) {
             bestUrl = url
@@ -111,7 +99,6 @@ internal class NouYtDlp(private val context: Context) {
         }
       }
 
-      // No audio-only found — fall back to best combined mp4
       if (bestUrl.isEmpty()) {
         var bestHeight = 0
         for (i in 0 until formats.length()) {
@@ -180,8 +167,8 @@ internal class NouYtDlp(private val context: Context) {
     if (formats.any { it.optString("vcodec") == "none" && it.optString("acodec") != "none" }) {
       options.add(mapOf(
         "formatId" to "bestaudio[abr<=320][ext=m4a]/bestaudio[abr<=320]/bestaudio",
-        "label" to "Audio only (320kbps)",
-        "description" to "Best audio up to 320kbps",
+        "label" to "Audio only (Best quality)",
+        "description" to "Best available audio with album art",
       ))
     }
 
@@ -205,6 +192,13 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
     request.addOption("--no-playlist")
     request.addOption("--merge-output-format", "mp4")
+
+    // Embed album art and metadata into downloaded file
+    request.addOption("--embed-thumbnail")
+    request.addOption("--add-metadata")
+    request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
+    request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
+
     var lastLine = ""
 
     try {
@@ -257,8 +251,7 @@ internal class NouYtDlp(private val context: Context) {
     }
 
     val contextOnlyMethod = findUpdateYoutubeDLMethod(updateChannel) { method ->
-      method.parameterTypes.size == 1 &&
-        isContextParameter(method.parameterTypes[0])
+      method.parameterTypes.size == 1 && isContextParameter(method.parameterTypes[0])
     }
     if (contextOnlyMethod != null) {
       contextOnlyMethod.invoke(youtubeDL, context)
@@ -281,7 +274,6 @@ internal class NouYtDlp(private val context: Context) {
       "com.yausername.youtubedl_android.YoutubeDL\$UpdateChannel",
       "com.yausername.youtubedl_android.UpdateChannel",
     )
-
     for (className in candidates) {
       try {
         val clazz = Class.forName(className)
@@ -289,21 +281,16 @@ internal class NouYtDlp(private val context: Context) {
           val stableField = clazz.getField("_STABLE")
           return stableField.get(null) ?: throw Exception("_STABLE update channel field is null")
         } catch (_: NoSuchFieldException) {}
-
         try {
           val stableField = clazz.getField("STABLE")
           return stableField.get(null) ?: throw Exception("STABLE update channel field is null")
         } catch (_: NoSuchFieldException) {}
-
         if (clazz.isEnum) {
-          val stableEnum = clazz.enumConstants?.firstOrNull {
-            (it as? Enum<*>)?.name == "STABLE"
-          }
+          val stableEnum = clazz.enumConstants?.firstOrNull { (it as? Enum<*>)?.name == "STABLE" }
           if (stableEnum != null) return stableEnum
         }
       } catch (_: Exception) {}
     }
-
     throw Exception("Unable to resolve yt-dlp update channel")
   }
 
