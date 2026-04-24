@@ -337,13 +337,13 @@ val KORNDOG_CAST_SCRIPT = """
     if (AudioCtx) {
       var ctx = new AudioCtx();
       var compressor = ctx.createDynamicsCompressor();
-      compressor.threshold.value = -50;
-      compressor.knee.value = 10;
-      compressor.ratio.value = 20;
-      compressor.attack.value = 0.001;
-      compressor.release.value = 0.1;
+      compressor.threshold.value = -35;
+      compressor.knee.value = 20;
+      compressor.ratio.value = 8;
+      compressor.attack.value = 0.005;
+      compressor.release.value = 0.2;
       var gainNode = ctx.createGain();
-      gainNode.gain.value = 3.5;
+      gainNode.gain.value = 2.0;
       compressor.connect(gainNode);
       gainNode.connect(ctx.destination);
 
