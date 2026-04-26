@@ -133,7 +133,7 @@ val KORNDOG_THEME_SCRIPT = """
   if (existing) existing.remove();
   var s = document.createElement('style');
   s.id = 'korndog-theme';
-  s.textContent = '${'$'}KORNDOG_THEME_CSS';
+  s.textContent = '${KORNDOG_THEME_CSS}';
   document.head.appendChild(s);
 })();
 """.trimIndent()
