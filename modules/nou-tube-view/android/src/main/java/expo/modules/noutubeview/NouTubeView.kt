@@ -390,27 +390,23 @@ val KORNDOG_CAST_SCRIPT = """
         if (!el._kdPlayFixed) {
           el._kdPlayFixed = true;
           el.addEventListener('click', function() {
+            // Wait 800ms — if YouTube hasn't started playing by then, nudge it
             setTimeout(function() {
               var vid = document.querySelector('video, audio');
-              if (vid && vid.paused) { vid.play().catch(function() {}); }
+              if (vid && vid.paused && vid.readyState >= 2) {
+                vid.play().catch(function() {});
+              }
               if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
                 window._kdAudioCtx.resume();
               }
-            }, 300);
+            }, 800);
           });
         }
       });
     });
     playObserver.observe(document.documentElement, { childList: true, subtree: true });
-    document.addEventListener('click', function(e) {
-      var btn = e.target && (e.target.closest('.play-pause-button') || e.target.closest('#play-pause-button') || e.target.closest('tp-yt-paper-icon-button'));
-      if (btn) {
-        setTimeout(function() {
-          var vid = document.querySelector('video, audio');
-          if (vid && vid.paused) { vid.play().catch(function() {}); }
-        }, 200);
-      }
-    }, { passive: true });
+    // Only auto-play from song list taps, NOT player controls
+    // (player controls handle their own state — interfering causes double-tap bug)
   }
 })();
 """.trimIndent()
