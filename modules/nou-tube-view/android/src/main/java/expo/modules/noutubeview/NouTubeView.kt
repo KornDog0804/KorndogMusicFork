@@ -133,7 +133,7 @@ val KORNDOG_THEME_SCRIPT = """
   if (existing) existing.remove();
   var s = document.createElement('style');
   s.id = 'korndog-theme';
-  s.textContent = '$KORNDOG_THEME_CSS';
+  s.textContent = '${'$'}KORNDOG_THEME_CSS';
   document.head.appendChild(s);
 })();
 """.trimIndent()
@@ -330,7 +330,7 @@ val KORNDOG_CAST_SCRIPT = """
     }, 2000);
   }
 
-  // Audio normalization — consistent volume across all tracks
+  // Audio normalization
   if (!window._kdAudioNormInit) {
     window._kdAudioNormInit = true;
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -354,30 +354,24 @@ val KORNDOG_CAST_SCRIPT = """
             el._kdHooked = true;
             var src = ctx.createMediaElementSource(el);
             src.connect(compressor);
-            // Resume context if suspended (browser autoplay policy)
             if (ctx.state === 'suspended') ctx.resume();
           }
         } catch(e) {}
       }
 
       function hookAll() {
-        document.querySelectorAll('audio, video').forEach(function(el) {
-          hookAudio(el);
-        });
+        document.querySelectorAll('audio, video').forEach(function(el) { hookAudio(el); });
       }
 
-      // Watch for new audio/video elements
       var normObserver = new MutationObserver(function() { hookAll(); });
       normObserver.observe(document.documentElement, { childList: true, subtree: true });
-
-      // Hook existing elements + retry after page settles
       hookAll();
       setTimeout(hookAll, 2000);
       setTimeout(hookAll, 5000);
     }
   }
 
-  // Fix double-tap to play
+  // Fix double-tap to play — only for song list, NOT player controls
   if (!window._kdPlayFixInit) {
     window._kdPlayFixInit = true;
     document.addEventListener('touchstart', function() {
@@ -390,12 +384,9 @@ val KORNDOG_CAST_SCRIPT = """
         if (!el._kdPlayFixed) {
           el._kdPlayFixed = true;
           el.addEventListener('click', function() {
-            // Wait 800ms — if YouTube hasn't started playing by then, nudge it
             setTimeout(function() {
               var vid = document.querySelector('video, audio');
-              if (vid && vid.paused && vid.readyState >= 2) {
-                vid.play().catch(function() {});
-              }
+              if (vid && vid.paused && vid.readyState >= 2) { vid.play().catch(function() {}); }
               if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
                 window._kdAudioCtx.resume();
               }
@@ -406,7 +397,61 @@ val KORNDOG_CAST_SCRIPT = """
     });
     playObserver.observe(document.documentElement, { childList: true, subtree: true });
     // Only auto-play from song list taps, NOT player controls
-    // (player controls handle their own state — interfering causes double-tap bug)
+  }
+
+  // 🥚 EASTER EGG — Triple-tap album art opens KornDog generator
+  if (!window._kdEasterEggInit) {
+    window._kdEasterEggInit = true;
+    var _kdTapCount = 0;
+    var _kdTapTimer = null;
+
+    function watchAlbumArt() {
+      var selectors = [
+        'ytmusic-player-bar img',
+        '#thumbnail img',
+        '.thumbnail img',
+        'ytmusic-large-image-view img',
+        'ytmusic-player img'
+      ];
+      selectors.forEach(function(sel) {
+        document.querySelectorAll(sel).forEach(function(el) {
+          if (!el._kdEggWatched) {
+            el._kdEggWatched = true;
+            el.addEventListener('click', function() {
+              _kdTapCount++;
+              clearTimeout(_kdTapTimer);
+              if (_kdTapCount >= 3) {
+                _kdTapCount = 0;
+                fireKornDogGenerator();
+              } else {
+                _kdTapTimer = setTimeout(function() { _kdTapCount = 0; }, 600);
+              }
+            });
+          }
+        });
+      });
+    }
+
+    function fireKornDogGenerator() {
+      try {
+        var titleEl = document.querySelector('.title.ytmusic-player-bar, ytmusic-player-bar .title');
+        var artistEl = document.querySelector('.byline.ytmusic-player-bar, ytmusic-player-bar .subtitle');
+        var thumbEl = document.querySelector('ytmusic-player-bar img, #thumbnail img');
+        var title = titleEl ? titleEl.textContent.trim() : '';
+        var artist = artistEl ? artistEl.textContent.trim() : '';
+        var thumb = thumbEl ? thumbEl.src : '';
+        var params = new URLSearchParams();
+        if (artist) params.set('artist', artist);
+        if (title) params.set('album', title);
+        if (thumb) params.set('thumb', thumb);
+        params.set('from', 'ghostkernel');
+        window.open('https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString(), '_blank');
+      } catch(e) {}
+    }
+
+    var eggObserver = new MutationObserver(function() { watchAlbumArt(); });
+    eggObserver.observe(document.documentElement, { childList: true, subtree: true });
+    watchAlbumArt();
   }
 })();
 """.trimIndent()
@@ -428,7 +473,6 @@ class NouWebView @JvmOverloads constructor(context: Context, attrs: AttributeSet
       displayZoomControls = false
     }
     CookieManager.getInstance().setAcceptCookie(true)
-
     setFocusable(true)
     setFocusableInTouchMode(true)
   }
@@ -474,7 +518,6 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
 
   private val gestureDetector = GestureDetector(context, gestureListener)
-
   private var service: NouService? = null
 
   internal val currentActivity: Activity?
@@ -482,24 +525,18 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   override fun onCreateContextMenu(menu: ContextMenu) {
     super.onCreateContextMenu(menu)
-
     val result = webView.getHitTestResult()
     val activity = currentActivity
     var url: String? = null
-
     if (result.getType() == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
       url = result.getExtra()
     } else if (result.getType() == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
       val href = webView.getHandler().obtainMessage()
       webView.requestFocusNodeHref(href)
       val data = href.getData()
-      if (data != null) {
-        url = data.getString("url")
-      }
+      if (data != null) url = data.getString("url")
     }
-    if (
-      url != null && activity != null
-    ) {
+    if (url != null && activity != null) {
       val onCopyLink = object : MenuItem.OnMenuItemClickListener {
         override fun onMenuItemClick(item: MenuItem): Boolean {
           val clipboardManager = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -508,10 +545,10 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
           return true
         }
       }
-
       menu.add("Copy link").setOnMenuItemClickListener(onCopyLink)
     }
   }
+
   internal val webView: NouWebView =
     NouWebView(context).apply {
       layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -520,120 +557,90 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         false
       }
       webViewClient = object : WebViewClient() {
-          override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
-            if (pageUrl != url) {
-              pageUrl = url
-              onLoad(
-                mapOf(
-                  "url" to pageUrl
-                )
-              )
-            }
-          }
-
-          override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            evaluateJavascript(KORNDOG_THEME_SCRIPT, null)
-            evaluateJavascript(scriptOnStart, null)
-          }
-
-          override fun onPageFinished(view: WebView, url: String) {
-            evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
-          }
-
-          override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-            if (request.url.host in BLOCK_HOSTS) {
-              return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
-            }
-            return null
-          }
-
-          override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-            val uri = Uri.parse(url)
-            if (uri.host in VIEW_HOSTS ||
-              (uri.host?.startsWith("accounts.google.") == true) ||
-              (uri.host?.startsWith("gds.google.") == true) ||
-              (uri.host?.endsWith(".youtube.com") == true)
-            ) {
-              return false
-            } else {
-              view.getContext().startActivity(
-                Intent(Intent.ACTION_VIEW, uri)
-              )
-              return true
-            }
+        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+          if (pageUrl != url) {
+            pageUrl = url
+            onLoad(mapOf("url" to pageUrl))
           }
         }
+
+        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+          evaluateJavascript(KORNDOG_THEME_SCRIPT, null)
+          evaluateJavascript(scriptOnStart, null)
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+          evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
+        }
+
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+          if (request.url.host in BLOCK_HOSTS) {
+            return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+          }
+          return null
+        }
+
+        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+          val uri = Uri.parse(url)
+          if (uri.host in VIEW_HOSTS ||
+            (uri.host?.startsWith("accounts.google.") == true) ||
+            (uri.host?.startsWith("gds.google.") == true) ||
+            (uri.host?.endsWith(".youtube.com") == true)
+          ) {
+            return false
+          } else {
+            view.getContext().startActivity(Intent(Intent.ACTION_VIEW, uri))
+            return true
+          }
+        }
+      }
 
       webChromeClient = object : WebChromeClient() {
         override fun onPermissionRequest(request: PermissionRequest) {
           val activity = currentActivity
-          if (activity == null) {
-            request.deny()
-            return
-          }
-
+          if (activity == null) { request.deny(); return }
           val resources = request.resources
           val permissionsToRequest = mutableListOf<String>()
-
-          if (resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+          if (resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
             permissionsToRequest.add(android.Manifest.permission.RECORD_AUDIO)
-          }
-          if (resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+          if (resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
             permissionsToRequest.add(android.Manifest.permission.CAMERA)
-          }
-
-          if (permissionsToRequest.isEmpty()) {
-            request.grant(resources)
-            return
-          }
-
+          if (permissionsToRequest.isEmpty()) { request.grant(resources); return }
           activity.requestPermissions(permissionsToRequest.toTypedArray(), 101)
           request.grant(resources)
         }
 
         override fun onJsBeforeUnload(view: WebView, url: String, message: String, result: JsResult): Boolean {
-          result.confirm()
-          return true
+          result.confirm(); return true
         }
 
         override fun onShowCustomView(view: View, cllback: CustomViewCallback) {
           customView = view
           view.setKeepScreenOn(true)
-          val activity = currentActivity
-          if (activity == null) {
-            return
-          }
+          val activity = currentActivity ?: return
           val window = activity.window
           (window.decorView as FrameLayout).addView(
-            view,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
           )
           activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
-
           val controller = WindowCompat.getInsetsController(window, window.decorView)
           controller.hide(WindowInsetsCompat.Type.systemBars())
           controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-
           if (Settings.System.getInt(activity.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1) {
             orientationListener.enable()
           }
         }
 
         override fun onHideCustomView() {
-          val activity = currentActivity
-          if (activity == null) {
-            return
-          }
+          val activity = currentActivity ?: return
           val window = activity.window
           (window.decorView as FrameLayout).removeView(customView)
           customView?.setKeepScreenOn(false)
           customView = null
           activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER)
-
           val controller = WindowCompat.getInsetsController(window, window.decorView)
           controller.show(WindowInsetsCompat.Type.systemBars())
           controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-
           this@apply.requestFocus()
           orientationListener.disable()
         }
@@ -642,24 +649,15 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   init {
     addView(webView)
-
     initService()
-
     val activity = currentActivity
     activity?.registerForContextMenu(webView)
-
     webView.addJavascriptInterface(NouJsInterface(context, this), "NouTubeI")
-
-    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, _ ->
-      WindowInsetsCompat.CONSUMED
-    }
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, _ -> WindowInsetsCompat.CONSUMED }
   }
 
   fun initService() {
-    val activity = currentActivity
-    if (activity == null) {
-      return
-    }
+    val activity = currentActivity ?: return
     val connection = object : ServiceConnection {
       override fun onServiceConnected(name: ComponentName, binder: IBinder) {
         val nouBinder = binder as NouService.NouBinder
@@ -668,19 +666,14 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         nouController.service = service
         nouController.applyPendingSleepTimer()
       }
-
-      override fun onServiceDisconnected(name: ComponentName) {
-      }
+      override fun onServiceDisconnected(name: ComponentName) {}
     }
     val intent = Intent(activity, NouService::class.java)
     activity.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-
     orientationListener = NouOrientationListener(activity, this)
   }
 
-  fun setScriptOnStart(script: String) {
-    scriptOnStart = script
-  }
+  fun setScriptOnStart(script: String) { scriptOnStart = script }
 
   fun clearData() {
     val cookieManager = CookieManager.getInstance()
@@ -690,7 +683,6 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
       cookieManager.removeAllCookie()
     }
     cookieManager.flush()
-
     webView.clearCache(true)
     webView.clearHistory()
     webView.clearFormData()
@@ -698,8 +690,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
   }
 
   fun emit(type: String, data: Any) {
-    val payload = mapOf("type" to type, "data" to data)
-    onMessage(mapOf("payload" to payload))
+    onMessage(mapOf("payload" to mapOf("type" to type, "data" to data)))
   }
 
   fun notify(title: String, author: String, seconds: Long, thumbnail: String) {
@@ -723,76 +714,46 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
   }
 
-  fun getPageUrl(): String {
-    return pageUrl
-  }
+  fun getPageUrl(): String = pageUrl
 
   // ============================================
   // AD-FREE CASTING via yt-dlp direct stream
   // ============================================
 
-  /** Called by NouJsInterface when user picks a discovered device */
   fun castAdFree(deviceIndex: Int) {
-    CoroutineScope(Dispatchers.IO).launch {
-      doExtractAndCast(deviceIndex = deviceIndex)
-    }
+    CoroutineScope(Dispatchers.IO).launch { doExtractAndCast(deviceIndex = deviceIndex) }
   }
 
-  /** Called by NouJsInterface when user enters a manual IP */
   fun castIpAdFree(ip: String) {
-    CoroutineScope(Dispatchers.IO).launch {
-      doExtractAndCast(targetIp = ip)
-    }
+    CoroutineScope(Dispatchers.IO).launch { doExtractAndCast(targetIp = ip) }
   }
 
   private suspend fun doExtractAndCast(deviceIndex: Int = -1, targetIp: String? = null) {
     val url = pageUrl
     if (url.isEmpty() || (!url.contains("youtube.com") && !url.contains("youtu.be"))) {
-      postCastStatus("Navigate to a YouTube video first")
-      return
+      postCastStatus("Navigate to a YouTube video first"); return
     }
-
-    postCastStatus("Extracting ad-free stream (10–20s)…")
-
+    postCastStatus("Extracting ad-free stream (10\u201320s)\u2026")
     try {
       val ytDlp = NouYtDlp(context)
       ytDlp.ensureYoutubeDLInitialized()
-
-      // getStreamUrl() returns Map<String, String> with "url" and "title"
       val streamInfo = ytDlp.getStreamUrl(url)
       val streamUrl = streamInfo["url"] ?: ""
-      if (streamUrl.isBlank()) {
-        postCastStatus("Failed to extract stream. Try a different video.")
-        return
-      }
+      if (streamUrl.isBlank()) { postCastStatus("Failed to extract stream. Try a different video."); return }
       val videoTitle = streamInfo["title"] ?: "NouTube Video"
-
-      postCastStatus("Casting to TV…")
-
+      postCastStatus("Casting to TV\u2026")
       val success = if (targetIp != null) {
-        // connectToIp sets currentDevice, then castUrl uses it
         val connected = nouCast.connectToIp(targetIp)
-        if (!connected) {
-          postCastStatus("No DLNA found at $targetIp — check your TV's IP")
-          return
-        }
+        if (!connected) { postCastStatus("No DLNA found at $targetIp \u2014 check your TV's IP"); return }
         nouCast.castUrl(streamUrl, videoTitle)
       } else {
-        // selectDevice sets currentDevice by index, then castUrl uses it
-        if (!nouCast.selectDevice(deviceIndex)) {
-          postCastStatus("Invalid device — try re-scanning")
-          return
-        }
+        if (!nouCast.selectDevice(deviceIndex)) { postCastStatus("Invalid device \u2014 try re-scanning"); return }
         nouCast.castUrl(streamUrl, videoTitle)
       }
-
       val label = targetIp ?: nouCast.getSelectedDevice()?.get("name") ?: "TV"
       val safeLabel = label.replace("'", "\\'")
       currentActivity?.runOnUiThread {
-        webView.evaluateJavascript(
-          "window.kdCastResult && window.kdCastResult($success, '$safeLabel')",
-          null
-        )
+        webView.evaluateJavascript("window.kdCastResult && window.kdCastResult($success, '$safeLabel')", null)
       }
     } catch (e: Exception) {
       postCastStatus("Error: ${e.message?.take(80) ?: "unknown"}")
@@ -806,7 +767,5 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
   }
 
-  fun exit() {
-    service?.exit()
-  }
+  fun exit() { service?.exit() }
 }
