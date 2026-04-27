@@ -46,6 +46,7 @@ jobs:
 
       - name: Reduce Gradle Memory
         run: |
+          mkdir -p ~/.gradle
           echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
           echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
 
