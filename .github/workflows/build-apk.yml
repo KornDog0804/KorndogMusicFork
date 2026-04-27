@@ -120,14 +120,15 @@ jobs:
 
       - name: Show APK Outputs
         run: |
-          find android/app/build/outputs/apk/release -type f -name "*.apk" -print -exec ls -lh {} \;
+          echo "---- APK files found ----"
+          find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
 
       - name: Upload Signed APK Only
         uses: actions/upload-artifact@v4
         with:
           name: korndog-noutube-signed-apk
           path: |
-            android/app/build/outputs/apk/release/*.apk
-            !android/app/build/outputs/apk/release/*unsigned*.apk
+            android/app/build/outputs/**/*.apk
+            !**/*unsigned*.apk
           retention-days: 30
           if-no-files-found: error
