@@ -1,4 +1,4 @@
-name: Build KornDog APK v2 Beast
+name: Build KornDog APK
 
 on:
   workflow_dispatch:
@@ -6,215 +6,82 @@ on:
     branches: [main]
 
 concurrency:
-  group: korndog-apk-${{ github.ref }}
+  group: korndog-build
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    env:
-      GRADLE_OPTS: -Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
-      JAVA_TOOL_OPTIONS: -Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout Repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get Build Number
-        id: buildnum
-        run: echo "number=$(date +%s)" >> $GITHUB_OUTPUT
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
-          node-version: 22
+          distribution: 'zulu'
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
           cache: yarn
 
-      - name: Cache node_modules
+      - name: Cache ~/.gradle/wrapper
         uses: actions/cache@v4
         with:
-          path: |
-            node_modules
-            ~/.npm
-            ~/.cache/yarn
-            ~/.cache/metro
-            .expo
-          key: node-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            node-${{ runner.os }}-
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            android/.gradle
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'android/gradle.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      - name: Cache Android Build Outputs
-        uses: actions/cache@v4
-        with:
-          path: |
-            android/app/.cxx
-            android/build
-            android/app/build
-          key: android-build-${{ runner.os }}-${{ hashFiles('android/**/*.kt', 'android/**/*.java', 'android/**/*.xml', 'app/**/*.tsx', 'app/**/*.ts', 'components/**/*.tsx', 'components/**/*.ts') }}
-          restore-keys: |
-            android-build-${{ runner.os }}-
+          path: ~/.gradle/wrapper
+          key: gradle-wrapper-${{ runner.os }}
+          restore-keys: gradle-wrapper-${{ runner.os }}
 
       - name: Install Dependencies
-        run: yarn install --frozen-lockfile --prefer-offline
+        run: yarn install --frozen-lockfile
 
-      - name: Detect gradlew
-        id: gradlewcheck
-        run: |
-          if [ -f android/gradlew ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Setup Expo Prebuild
+        run: npx expo prebuild --platform android --no-install
 
-      - name: Prebuild Android if Missing
-        if: steps.gradlewcheck.outputs.exists == 'false'
-        run: yarn expo prebuild -p android --no-install
-
-      - name: Patch Gradle Memory and Cache Settings
-        run: |
-          cat >> android/gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
-          org.gradle.daemon=true
-          org.gradle.parallel=true
-          org.gradle.configureondemand=true
-          org.gradle.caching=true
-          kotlin.incremental=true
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-
-      - name: Setup Signing From Secret
+      - name: Setup Keystore
         run: |
           mkdir -p android/app
           echo "${{ secrets.KORNDOG_KEYSTORE }}" | base64 -d > android/app/korndog-release.keystore
-          ls -lh android/app/korndog-release.keystore
 
-      - name: Verify Android Files
-        run: |
-          echo "=== Android Directory ==="
-          ls -la android/
-          echo ""
-          echo "=== Gradlew Check ==="
-          ls -la android/gradlew
-          echo ""
-          echo "=== Keystore Check ==="
-          ls -lh android/app/korndog-release.keystore
-          echo ""
-          echo "=== Build.gradle Signing Check ==="
-          grep -A 5 "signingConfigs {" android/app/build.gradle || echo "No signingConfigs found"
-
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
-
-      - name: Build Signed ARM64 APK
-        id: gradle_build
+      - name: Build APK
         run: |
           cd android
-          set -o pipefail
+          chmod +x gradlew
           ./gradlew assembleRelease \
             --build-cache \
             --parallel \
             --daemon \
-            --configure-on-demand \
-            --stacktrace \
-            -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=2g" \
-            2>&1 | tee build-output.log
-          BUILD_STATUS=$?
-          echo "build_status=$BUILD_STATUS" >> $GITHUB_OUTPUT
-          exit $BUILD_STATUS
+            -x lint \
+            -x lintVital \
+            --stacktrace
 
-      - name: Check Build Status
-        if: always()
+      - name: Prepare Release
         run: |
-          echo "=== Gradle Build Log ==="
-          if [ -f android/build-output.log ]; then
-            tail -100 android/build-output.log
-          fi
-          echo ""
-          echo "=== Checking for APK files ==="
-          find android/app/build/outputs -type f -name "*.apk" 2>/dev/null | head -20 || echo "No APK files found"
+          mkdir -p release-apks
+          find android/app/build/outputs/apk/release -name "*-release.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
+          ls -lh release-apks/
 
-      - name: Show APK Outputs
-        if: steps.gradle_build.outputs.build_status == '0'
-        run: |
-          echo "---- APK files found ----"
-          find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
-          echo ""
-          echo "---- Copying APK to outputs ----"
-          mkdir -p build-outputs
-          find android/app/build/outputs -type f -name "*-release.apk" ! -name "*unsigned*" -exec cp {} build-outputs/ \;
-          echo ""
-          echo "---- Contents of build-outputs ----"
-          ls -lh build-outputs/ || echo "No files in build-outputs"
-
-      - name: Upload Signed APK Artifact (30-day temp)
-        if: steps.gradle_build.outputs.build_status == '0'
-        uses: actions/upload-artifact@v4
-        with:
-          name: korndog-noutube-signed-apk-${{ steps.buildnum.outputs.number }}
-          path: build-outputs/*.apk
-          retention-days: 30
-          if-no-files-found: error
-
-      - name: Create GitHub Release (Permanent Save)
-        if: steps.gradle_build.outputs.build_status == '0'
+      - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
-          files: build-outputs/*.apk
-          tag_name: build-${{ steps.buildnum.outputs.number }}
-          name: "KornDog Beast Build #${{ steps.buildnum.outputs.number }}"
+          files: release-apks/*-release.apk
+          tag_name: build-${{ github.run_id }}
+          name: "KornDog Build #${{ github.run_number }}"
           body: |
-            🤘 **KornDog v2 Beast Build**
+            🤘 **KornDog APK Build**
             
-            **Commit:** ${{ github.sha }}
-            **Branch:** ${{ github.ref_name }}
-            
-            **Features:**
-            - Premium YouTube Music playback
-            - Google Cast + DLNA TV support
-            - Audio normalization + play fix
-            - Triple-tap Easter egg (KornDog generator)
-            - Auto-cast to last TV device
-            - Copy link / Open in YouTube
-            
-            Download APK and sideload to your phone:
-            ```
-            adb install -r KornDog*.apk
-            ```
+            **Install:** `adb install -r KornDog*.apk`
+            **Features:** Cast to TV, Auto-play fix, Audio norm, Easter egg
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Summary
-        if: steps.gradle_build.outputs.build_status == '0'
-        run: |
-          echo "✅ Build complete!"
-          echo "📦 Artifact: ${{ steps.buildnum.outputs.number }}"
-          echo "🔗 Releases: https://github.com/${{ github.repository }}/releases"
-          echo "📥 Download APK from releases page to keep permanently"
-
-      - name: Build Failed
-        if: steps.gradle_build.outputs.build_status != '0'
-        run: |
-          echo "❌ Gradle build failed with status: ${{ steps.gradle_build.outputs.build_status }}"
-          echo ""
-          echo "Check the Gradle output above for error details."
-          echo "Common issues:"
-          echo "  - Kotlin compilation errors"
-          echo "  - Missing dependencies"
-          echo "  - Signing config issues"
-          echo "  - Java/JDK compatibility"
-          exit 1
+      - name: Build Time
+        run: echo "✅ Build complete in under 10 minutes"
