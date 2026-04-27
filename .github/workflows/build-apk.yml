@@ -12,7 +12,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+
+    env:
+      GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m
 
     steps:
       - name: Checkout
@@ -41,6 +44,11 @@ jobs:
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Reduce Gradle Memory
+        run: |
+          echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
+          echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
+
       - name: Setup Expo Prebuild
         run: npx expo prebuild --platform android --no-install
 
@@ -55,8 +63,6 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease \
             --build-cache \
-            --parallel \
-            --daemon \
             --stacktrace
 
       - name: Prepare Release
