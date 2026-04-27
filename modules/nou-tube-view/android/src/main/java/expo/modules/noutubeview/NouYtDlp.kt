@@ -55,6 +55,18 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
+  /**
+   * Extract direct stream URL for casting.
+   *
+   * YouTube Premium serves higher quality but often DASH (separate audio/video).
+   * DLNA/Cast needs a single playable URL.
+   *
+   * Strategy:
+   *   1. Try best combined mp4 (single URL, DLNA-safe) up to 720p
+   *   2. Try best m4a audio-only (DLNA handles audio-only fine)
+   *   3. Try any combined format
+   *   4. Fall back to absolute best
+   */
   fun getStreamUrl(videoUrl: String): Map<String, String> {
     ensureYoutubeDLInitialized()
 
@@ -62,10 +74,16 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--dump-json")
     request.addOption("--no-playlist")
     request.addOption("-R", "1")
-    request.addOption("--socket-timeout", "10")
+    request.addOption("--socket-timeout", "15")
+    // Priority chain for DLNA/Cast compatibility:
+    // 1. Combined mp4 up to 720p — single URL, universally supported
+    // 2. Combined mp4 up to 1080p
+    // 3. Best m4a audio — DLNA plays audio-only fine
+    // 4. Any combined format
+    // 5. Absolute fallback
     request.addOption(
       "-f",
-      "bestaudio[abr<=320][ext=m4a]/bestaudio[abr<=320]/bestaudio[ext=m4a]/bestaudio/best[ext=mp4]/best"
+      "best[ext=mp4][height<=720]/best[ext=mp4][height<=1080]/best[ext=mp4]/bestaudio[ext=m4a]/bestaudio/best"
     )
 
     val response = YoutubeDL.getInstance().execute(request)
@@ -75,50 +93,73 @@ internal class NouYtDlp(private val context: Context) {
     val directUrl = json.optString("url", "")
 
     if (directUrl.isNotEmpty()) {
+      Log.d("NouYtDlp", "Got direct URL for: $title")
       return mapOf("url" to directUrl, "title" to title)
     }
 
+    // Walk formats manually — pick best single-URL combined or audio-only
     val formats = json.optJSONArray("formats")
     if (formats != null) {
-      var bestUrl = ""
-      var bestAbr = -1
+      // Pass 1: best combined mp4 with both video+audio in single URL
+      var bestCombinedUrl = ""
+      var bestHeight = 0
+      for (i in 0 until formats.length()) {
+        val fmt = formats.optJSONObject(i) ?: continue
+        val vcodec = fmt.optString("vcodec", "none")
+        val acodec = fmt.optString("acodec", "none")
+        val ext = fmt.optString("ext", "")
+        val height = fmt.optInt("height", 0)
+        val url = fmt.optString("url", "")
+        val protocol = fmt.optString("protocol", "")
+        // Skip DASH segments — they won't work with DLNA
+        if (protocol.contains("dash") || protocol.contains("m3u8")) continue
+        if (vcodec != "none" && acodec != "none" && ext == "mp4"
+          && height in 1..720 && url.isNotEmpty() && height > bestHeight) {
+          bestCombinedUrl = url
+          bestHeight = height
+        }
+      }
+      if (bestCombinedUrl.isNotEmpty()) {
+        Log.d("NouYtDlp", "Using combined mp4 ${bestHeight}p")
+        return mapOf("url" to bestCombinedUrl, "title" to title)
+      }
 
+      // Pass 2: best m4a audio-only (Premium serves 256kbps here)
+      var bestAudioUrl = ""
+      var bestAbr = -1
       for (i in 0 until formats.length()) {
         val fmt = formats.optJSONObject(i) ?: continue
         val acodec = fmt.optString("acodec", "none")
         val vcodec = fmt.optString("vcodec", "none")
+        val ext = fmt.optString("ext", "")
         val abr = fmt.optInt("abr", 0)
         val url = fmt.optString("url", "")
-        val ext = fmt.optString("ext", "")
-
-        if (acodec != "none" && vcodec == "none" && abr <= 320 && url.isNotEmpty()) {
-          if (abr > bestAbr || (abr == bestAbr && ext == "m4a")) {
-            bestUrl = url
-            bestAbr = abr
-          }
+        val protocol = fmt.optString("protocol", "")
+        if (protocol.contains("dash") || protocol.contains("m3u8")) continue
+        if (acodec != "none" && vcodec == "none" && ext == "m4a"
+          && url.isNotEmpty() && abr > bestAbr) {
+          bestAudioUrl = url
+          bestAbr = abr
         }
       }
-
-      if (bestUrl.isEmpty()) {
-        var bestHeight = 0
-        for (i in 0 until formats.length()) {
-          val fmt = formats.optJSONObject(i) ?: continue
-          val vcodec = fmt.optString("vcodec", "none")
-          val acodec = fmt.optString("acodec", "none")
-          val ext = fmt.optString("ext", "")
-          val height = fmt.optInt("height", 0)
-          val url = fmt.optString("url", "")
-          if (vcodec != "none" && acodec != "none" && ext == "mp4" && height > bestHeight && url.isNotEmpty()) {
-            bestUrl = url
-            bestHeight = height
-          }
-        }
+      if (bestAudioUrl.isNotEmpty()) {
+        Log.d("NouYtDlp", "Using m4a audio ${bestAbr}kbps")
+        return mapOf("url" to bestAudioUrl, "title" to title)
       }
 
-      if (bestUrl.isNotEmpty()) return mapOf("url" to bestUrl, "title" to title)
+      // Pass 3: any non-DASH url
+      for (i in formats.length() - 1 downTo 0) {
+        val fmt = formats.optJSONObject(i) ?: continue
+        val url = fmt.optString("url", "")
+        val protocol = fmt.optString("protocol", "")
+        if (url.isNotEmpty() && !protocol.contains("dash") && !protocol.contains("m3u8")) {
+          Log.d("NouYtDlp", "Using fallback format")
+          return mapOf("url" to url, "title" to title)
+        }
+      }
     }
 
-    throw Exception("No stream URL found")
+    throw Exception("No DLNA-compatible stream URL found")
   }
 
   fun listFormats(url: String): Map<String, Any> {
@@ -166,7 +207,7 @@ internal class NouYtDlp(private val context: Context) {
 
     if (formats.any { it.optString("vcodec") == "none" && it.optString("acodec") != "none" }) {
       options.add(mapOf(
-        "formatId" to "bestaudio[abr<=320][ext=m4a]/bestaudio[abr<=320]/bestaudio",
+        "formatId" to "bestaudio[ext=m4a]/bestaudio",
         "label" to "Audio only (Best quality)",
         "description" to "Best available audio with album art",
       ))
@@ -192,13 +233,10 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
     request.addOption("--no-playlist")
     request.addOption("--merge-output-format", "mp4")
-
-    // Embed album art and metadata into downloaded file
     request.addOption("--embed-thumbnail")
     request.addOption("--add-metadata")
     request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
     request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
-
     var lastLine = ""
 
     try {
