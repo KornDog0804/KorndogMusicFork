@@ -1,4 +1,4 @@
-name: Build KornDog APK (7 Minute Mode)
+name: Build KornDog APK
 
 on:
   workflow_dispatch:
@@ -11,11 +11,6 @@ jobs:
 
     env:
       GRADLE_OPTS: -Xmx7g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
-      ORG_GRADLE_PROJECT_org.gradle.daemon: true
-      ORG_GRADLE_PROJECT_org.gradle.parallel: true
-      ORG_GRADLE_PROJECT_org.gradle.caching: true
-      ORG_GRADLE_PROJECT_org.gradle.configureondemand: true
-      ORG_GRADLE_PROJECT_org.gradle.configuration-cache: true
 
     steps:
       - name: Checkout Repo
@@ -78,7 +73,7 @@ jobs:
 
       - name: Setup Signing
         run: |
-          echo 'PASTE_YOUR_BASE64_KEYSTORE_HERE' | base64 -d > android/app/korndog-release.keystore
+          echo "${{ secrets.KORNDOG_KEYSTORE }}" | base64 -d > android/app/korndog-release.keystore
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
@@ -91,7 +86,8 @@ jobs:
           --parallel \
           --daemon \
           --configure-on-demand \
-          --configuration-cache
+          --configuration-cache \
+          --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
