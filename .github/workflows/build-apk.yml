@@ -103,35 +103,64 @@ jobs:
 
       - name: Verify Android Files
         run: |
-          ls -la android
+          echo "=== Android Directory ==="
+          ls -la android/
+          echo ""
+          echo "=== Gradlew Check ==="
           ls -la android/gradlew
+          echo ""
+          echo "=== Keystore Check ==="
           ls -lh android/app/korndog-release.keystore
-          echo "---- signing check ----"
-          grep -n "signingConfigs\|signingConfig signingConfigs.release\|arm64-v8a\|universalApk false" android/app/build.gradle || true
+          echo ""
+          echo "=== Build.gradle Signing Check ==="
+          grep -A 5 "signingConfigs {" android/app/build.gradle || echo "No signingConfigs found"
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
       - name: Build Signed ARM64 APK
+        id: gradle_build
         run: |
           cd android
+          set -o pipefail
           ./gradlew assembleRelease \
             --build-cache \
             --parallel \
             --daemon \
             --configure-on-demand \
-            --stacktrace
+            --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=2g" \
+            2>&1 | tee build-output.log
+          BUILD_STATUS=$?
+          echo "build_status=$BUILD_STATUS" >> $GITHUB_OUTPUT
+          exit $BUILD_STATUS
+
+      - name: Check Build Status
+        if: always()
+        run: |
+          echo "=== Gradle Build Log ==="
+          if [ -f android/build-output.log ]; then
+            tail -100 android/build-output.log
+          fi
+          echo ""
+          echo "=== Checking for APK files ==="
+          find android/app/build/outputs -type f -name "*.apk" 2>/dev/null | head -20 || echo "No APK files found"
 
       - name: Show APK Outputs
+        if: steps.gradle_build.outputs.build_status == '0'
         run: |
           echo "---- APK files found ----"
           find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
+          echo ""
           echo "---- Copying APK to outputs ----"
           mkdir -p build-outputs
           find android/app/build/outputs -type f -name "*-release.apk" ! -name "*unsigned*" -exec cp {} build-outputs/ \;
-          ls -lh build-outputs/
+          echo ""
+          echo "---- Contents of build-outputs ----"
+          ls -lh build-outputs/ || echo "No files in build-outputs"
 
       - name: Upload Signed APK Artifact (30-day temp)
+        if: steps.gradle_build.outputs.build_status == '0'
         uses: actions/upload-artifact@v4
         with:
           name: korndog-noutube-signed-apk-${{ steps.buildnum.outputs.number }}
@@ -140,6 +169,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release (Permanent Save)
+        if: steps.gradle_build.outputs.build_status == '0'
         uses: softprops/action-gh-release@v1
         with:
           files: build-outputs/*.apk
@@ -150,7 +180,6 @@ jobs:
             
             **Commit:** ${{ github.sha }}
             **Branch:** ${{ github.ref_name }}
-            **Built:** ${{ github.event.head_commit.timestamp }}
             
             **Features:**
             - Premium YouTube Music playback
@@ -170,8 +199,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Summary
+        if: steps.gradle_build.outputs.build_status == '0'
         run: |
           echo "✅ Build complete!"
           echo "📦 Artifact: ${{ steps.buildnum.outputs.number }}"
           echo "🔗 Releases: https://github.com/${{ github.repository }}/releases"
           echo "📥 Download APK from releases page to keep permanently"
+
+      - name: Build Failed
+        if: steps.gradle_build.outputs.build_status != '0'
+        run: |
+          echo "❌ Gradle build failed with status: ${{ steps.gradle_build.outputs.build_status }}"
+          echo ""
+          echo "Check the Gradle output above for error details."
+          echo "Common issues:"
+          echo "  - Kotlin compilation errors"
+          echo "  - Missing dependencies"
+          echo "  - Signing config issues"
+          echo "  - Java/JDK compatibility"
+          exit 1
