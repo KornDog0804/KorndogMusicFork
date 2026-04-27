@@ -1,4 +1,4 @@
-name: Build KornDog APK
+name: Build KornDog APK v2 Beast
 
 on:
   workflow_dispatch:
@@ -58,18 +58,24 @@ jobs:
       - name: Install Dependencies
         run: yarn install --frozen-lockfile --prefer-offline
 
-      - name: Detect Android Folder
-        id: androidcheck
+      - name: Detect gradlew
+        id: gradlewcheck
         run: |
-          if [ -d android ]; then
+          if [ -f android/gradlew ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prebuild ONLY if Needed
-        if: steps.androidcheck.outputs.exists == 'false'
+      - name: Prebuild Android if Missing
+        if: steps.gradlewcheck.outputs.exists == 'false'
         run: yarn expo prebuild -p android --no-install
+
+      - name: Verify Android Files
+        run: |
+          ls -la
+          ls -la android || true
+          ls -la android/gradlew || true
 
       - name: Setup Signing
         run: |
