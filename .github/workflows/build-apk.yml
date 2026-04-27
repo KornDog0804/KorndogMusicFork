@@ -21,6 +21,10 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
+      - name: Get Build Number
+        id: buildnum
+        run: echo "number=$(date +%s)" >> $GITHUB_OUTPUT
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -122,13 +126,52 @@ jobs:
         run: |
           echo "---- APK files found ----"
           find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
+          echo "---- Copying APK to outputs ----"
+          mkdir -p build-outputs
+          find android/app/build/outputs -type f -name "*-release.apk" ! -name "*unsigned*" -exec cp {} build-outputs/ \;
+          ls -lh build-outputs/
 
-      - name: Upload Signed APK Only
+      - name: Upload Signed APK Artifact (30-day temp)
         uses: actions/upload-artifact@v4
         with:
-          name: korndog-noutube-signed-apk
-          path: |
-            android/app/build/outputs/**/*.apk
-            !**/*unsigned*.apk
+          name: korndog-noutube-signed-apk-${{ steps.buildnum.outputs.number }}
+          path: build-outputs/*.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Create GitHub Release (Permanent Save)
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build-outputs/*.apk
+          tag_name: build-${{ steps.buildnum.outputs.number }}
+          name: "KornDog Beast Build #${{ steps.buildnum.outputs.number }}"
+          body: |
+            🤘 **KornDog v2 Beast Build**
+            
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref_name }}
+            **Built:** ${{ github.event.head_commit.timestamp }}
+            
+            **Features:**
+            - Premium YouTube Music playback
+            - Google Cast + DLNA TV support
+            - Audio normalization + play fix
+            - Triple-tap Easter egg (KornDog generator)
+            - Auto-cast to last TV device
+            - Copy link / Open in YouTube
+            
+            Download APK and sideload to your phone:
+            ```
+            adb install -r KornDog*.apk
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Summary
+        run: |
+          echo "✅ Build complete!"
+          echo "📦 Artifact: ${{ steps.buildnum.outputs.number }}"
+          echo "🔗 Releases: https://github.com/${{ github.repository }}/releases"
+          echo "📥 Download APK from releases page to keep permanently"
