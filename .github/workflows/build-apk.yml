@@ -66,16 +66,30 @@ jobs:
             --build-cache \
             --stacktrace
 
+      - name: Find APK Files
+        run: |
+          echo "=== Searching for APK files ==="
+          find android/app/build/outputs -type f -name "*.apk" 2>/dev/null | head -20
+          echo ""
+          echo "=== Full outputs directory structure ==="
+          ls -lhR android/app/build/outputs/ 2>/dev/null || echo "No outputs directory"
+
       - name: Prepare Release
         run: |
           mkdir -p release-apks
-          find android/app/build/outputs/apk/release -name "*-release.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
-          ls -lh release-apks/
+          echo "=== Copying all APKs ==="
+          find android/app/build/outputs -type f -name "*.apk" -exec cp {} release-apks/ \;
+          echo ""
+          echo "=== Contents of release-apks ==="
+          ls -lh release-apks/ || echo "ERROR: No files in release-apks"
+          echo ""
+          echo "=== File count ==="
+          find release-apks -type f | wc -l
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
-          files: release-apks/*-release.apk
+          files: release-apks/*.apk
           tag_name: build-${{ github.run_id }}
           name: "KornDog Build #${{ github.run_number }}"
           body: |
@@ -89,4 +103,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Time
-        run: echo "✅ Build complete in under 10 minutes"
+        run: echo "✅ Build complete in under 45 minutes"
