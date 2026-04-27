@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     env:
       GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m
