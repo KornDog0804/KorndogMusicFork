@@ -5,12 +5,17 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: korndog-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     env:
-      GRADLE_OPTS: -Xmx7g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
+      GRADLE_OPTS: -Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
+      JAVA_TOOL_OPTIONS: -Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
 
     steps:
       - name: Checkout Repo
@@ -28,7 +33,9 @@ jobs:
           path: |
             node_modules
             ~/.npm
-            ~/.cache
+            ~/.cache/yarn
+            ~/.cache/metro
+            .expo
           key: node-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
             node-${{ runner.os }}-
@@ -40,20 +47,20 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             android/.gradle
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'android/gradle.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      - name: Cache Android Native
+      - name: Cache Android Build Outputs
         uses: actions/cache@v4
         with:
           path: |
             android/app/.cxx
             android/build
             android/app/build
-          key: native-${{ runner.os }}-${{ hashFiles('android/**/*.kt', 'android/**/*.java', 'android/**/*.xml') }}
+          key: android-build-${{ runner.os }}-${{ hashFiles('android/**/*.kt', 'android/**/*.java', 'android/**/*.xml', 'app/**/*.tsx', 'app/**/*.ts', 'components/**/*.tsx', 'components/**/*.ts') }}
           restore-keys: |
-            native-${{ runner.os }}-
+            android-build-${{ runner.os }}-
 
       - name: Install Dependencies
         run: yarn install --frozen-lockfile --prefer-offline
@@ -71,11 +78,24 @@ jobs:
         if: steps.gradlewcheck.outputs.exists == 'false'
         run: yarn expo prebuild -p android --no-install
 
+      - name: Patch Gradle Memory and Cache Settings
+        run: |
+          cat >> android/gradle.properties << 'EOF'
+
+          org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
+          org.gradle.daemon=true
+          org.gradle.parallel=true
+          org.gradle.configureondemand=true
+          org.gradle.caching=true
+          kotlin.incremental=true
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
       - name: Verify Android Files
         run: |
-          ls -la
-          ls -la android || true
-          ls -la android/gradlew || true
+          ls -la android
+          ls -la android/gradlew
 
       - name: Setup Signing
         run: |
@@ -88,12 +108,11 @@ jobs:
         run: |
           cd android
           ./gradlew assembleRelease \
-          --build-cache \
-          --parallel \
-          --daemon \
-          --configure-on-demand \
-          --configuration-cache \
-          --stacktrace
+            --build-cache \
+            --parallel \
+            --daemon \
+            --configure-on-demand \
+            --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
