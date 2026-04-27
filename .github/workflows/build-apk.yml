@@ -44,6 +44,13 @@ jobs:
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Create Keystore Directory
+        run: |
+          mkdir -p android/app
+          echo "${{ secrets.KORNDOG_KEYSTORE }}" | base64 -d > android/app/korndog-release.keystore
+          echo "=== Keystore created ==="
+          ls -lh android/app/korndog-release.keystore
+
       - name: Reduce Gradle Memory
         run: |
           mkdir -p ~/.gradle
@@ -53,10 +60,12 @@ jobs:
       - name: Setup Expo Prebuild
         run: npx expo prebuild --platform android --no-install
 
-      - name: Setup Keystore
+      - name: Patch build.gradle for Absolute Keystore Path
         run: |
-          mkdir -p android/app
-          echo "${{ secrets.KORNDOG_KEYSTORE }}" | base64 -d > android/app/korndog-release.keystore
+          KEYSTORE_PATH="$(cd android/app && pwd)/korndog-release.keystore"
+          echo "Using keystore: $KEYSTORE_PATH"
+          sed -i "s|storeFile file('korndog-release.keystore')|storeFile file('$KEYSTORE_PATH')|g" android/app/build.gradle
+          grep -A 3 "release {" android/app/build.gradle | head -5
 
       - name: Build APK
         run: |
@@ -68,23 +77,20 @@ jobs:
 
       - name: Find APK Files
         run: |
-          echo "=== Searching for APK files ==="
-          find android/app/build/outputs -type f -name "*.apk" 2>/dev/null | head -20
+          echo "=== All APK files ==="
+          find android/app/build/outputs -type f -name "*.apk" 2>/dev/null
           echo ""
-          echo "=== Full outputs directory structure ==="
-          ls -lhR android/app/build/outputs/ 2>/dev/null || echo "No outputs directory"
+          echo "=== APK count ==="
+          find android/app/build/outputs -type f -name "*release.apk" | wc -l
 
       - name: Prepare Release
         run: |
           mkdir -p release-apks
-          echo "=== Copying all APKs ==="
-          find android/app/build/outputs -type f -name "*.apk" -exec cp {} release-apks/ \;
+          echo "=== Copying signed APKs ==="
+          find android/app/build/outputs -type f -name "*arm64-v8a*release.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
           echo ""
           echo "=== Contents of release-apks ==="
-          ls -lh release-apks/ || echo "ERROR: No files in release-apks"
-          echo ""
-          echo "=== File count ==="
-          find release-apks -type f | wc -l
+          ls -lh release-apks/ || echo "ERROR: No APKs found"
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
@@ -95,12 +101,12 @@ jobs:
           body: |
             🤘 **KornDog APK Build**
             
-            **Install:** `adb install -r KornDog*.apk`
+            **Install:** `adb install -r app-arm64-v8a-release.apk`
             **Features:** Cast to TV, Auto-play fix, Audio norm, Easter egg
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Time
-        run: echo "✅ Build complete in under 45 minutes"
+      - name: Build Complete
+        run: echo "✅ Signed APK ready"
