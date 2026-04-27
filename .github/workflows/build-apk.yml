@@ -57,8 +57,6 @@ jobs:
             --build-cache \
             --parallel \
             --daemon \
-            -x lintReport \
-            -x lintVitalReport \
             --stacktrace
 
       - name: Prepare Release
