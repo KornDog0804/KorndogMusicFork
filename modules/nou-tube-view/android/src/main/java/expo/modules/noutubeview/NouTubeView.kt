@@ -36,26 +36,16 @@ import androidx.core.view.WindowInsetsControllerCompat
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.viewevent.EventDispatcher
 import expo.modules.kotlin.views.ExpoView
-import java.io.ByteArrayInputStream
-import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-val BLOCK_HOSTS = arrayOf(
-  "www.googletagmanager.com",
-  "googleads.g.doubleclick.net"
-)
+val BLOCK_HOSTS = emptyArray<String>()
 
 val VIEW_HOSTS = arrayOf(
   "youtube.com",
   "youtu.be"
 )
 
-// ============================================
-// KORNDOG RECORDS THEME CSS
-// ============================================
 val KORNDOG_THEME_CSS = """
 :root {
   --yt-spec-base-background: #1a0a2e !important;
@@ -102,31 +92,163 @@ tp-yt-paper-listbox { background: #2d1450 !important; }
 ytmusic-dialog { background: #2d1450 !important; }
 yt-button-renderer[button-next] a { color: #39ff14 !important; }
 .toggle-button { color: #39ff14 !important; }
-#korndog-cast-btn { position:fixed; top:12px; right:110px; z-index:99999; width:36px; height:36px; border-radius:8px; background:transparent; border:none; box-shadow:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; line-height:1; transition:transform 0.15s,opacity 0.15s; opacity:0.85; }
+
+#korndog-cast-btn {
+  position:fixed;
+  top:12px;
+  right:110px;
+  z-index:99999;
+  width:36px;
+  height:36px;
+  border-radius:8px;
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:22px;
+  line-height:1;
+  transition:transform 0.15s,opacity 0.15s;
+  opacity:0.85;
+}
 #korndog-cast-btn:active { transform:scale(0.92); }
-#korndog-cast-btn.connected { background:#2d1450; border-color:#39ff14; box-shadow:0 0 20px #39ff14; }
-#korndog-cast-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,10,46,0.97); z-index:100000; flex-direction:column; align-items:center; justify-content:center; padding:24px; box-sizing:border-box; overflow-y:auto; }
+#korndog-cast-btn.connected {
+  background:#2d1450;
+  border-color:#39ff14;
+  box-shadow:0 0 20px #39ff14;
+}
+#korndog-cast-overlay {
+  display:none;
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:rgba(26,10,46,0.97);
+  z-index:100000;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  box-sizing:border-box;
+  overflow-y:auto;
+}
 #korndog-cast-overlay.show { display:flex; }
-#korndog-cast-overlay h2 { color:#39ff14; font-size:22px; margin:0 0 20px 0; font-family:sans-serif; text-align:center; }
-#korndog-cast-overlay .kd-device { background:#2d1450; border:1px solid #3f1d6b; border-radius:10px; padding:16px 24px; margin:6px 0; width:100%; max-width:320px; color:#f0eaf8; font-size:16px; font-family:sans-serif; cursor:pointer; text-align:center; }
-#korndog-cast-overlay .kd-device:active { background:#3f1d6b; border-color:#39ff14; }
-#korndog-cast-overlay .kd-status { color:#a090b8; font-size:14px; margin:16px 0; font-family:sans-serif; text-align:center; }
-#korndog-cast-overlay .kd-close { color:#ff2d2d; font-size:15px; margin-top:24px; cursor:pointer; font-family:sans-serif; padding:12px 24px; border:1px solid #ff2d2d; border-radius:8px; }
+#korndog-cast-overlay h2 {
+  color:#39ff14;
+  font-size:22px;
+  margin:0 0 20px 0;
+  font-family:sans-serif;
+  text-align:center;
+}
+#korndog-cast-overlay .kd-device {
+  background:#2d1450;
+  border:1px solid #3f1d6b;
+  border-radius:10px;
+  padding:16px 24px;
+  margin:6px 0;
+  width:100%;
+  max-width:320px;
+  color:#f0eaf8;
+  font-size:16px;
+  font-family:sans-serif;
+  cursor:pointer;
+  text-align:center;
+}
+#korndog-cast-overlay .kd-device:active {
+  background:#3f1d6b;
+  border-color:#39ff14;
+}
+#korndog-cast-overlay .kd-status {
+  color:#a090b8;
+  font-size:14px;
+  margin:16px 0;
+  font-family:sans-serif;
+  text-align:center;
+}
+#korndog-cast-overlay .kd-close {
+  color:#ff2d2d;
+  font-size:15px;
+  margin-top:24px;
+  cursor:pointer;
+  font-family:sans-serif;
+  padding:12px 24px;
+  border:1px solid #ff2d2d;
+  border-radius:8px;
+}
 #korndog-cast-overlay .kd-close:active { background:rgba(255,45,45,0.15); }
-#korndog-cast-overlay .kd-manual-btn { color:#39ff14; font-size:14px; margin-top:16px; cursor:pointer; font-family:sans-serif; padding:10px 20px; border:1px solid #3f1d6b; border-radius:8px; background:#1e0e35; }
+#korndog-cast-overlay .kd-manual-btn {
+  color:#39ff14;
+  font-size:14px;
+  margin-top:16px;
+  cursor:pointer;
+  font-family:sans-serif;
+  padding:10px 20px;
+  border:1px solid #3f1d6b;
+  border-radius:8px;
+  background:#1e0e35;
+}
 #korndog-cast-overlay .kd-manual-btn:active { background:#3f1d6b; }
-#korndog-ip-input { background:#1e0e35; border:2px solid #3f1d6b; border-radius:8px; color:#f0eaf8; font-size:18px; padding:12px 16px; width:100%; max-width:280px; text-align:center; font-family:monospace; margin:8px 0; outline:none; box-sizing:border-box; }
+#korndog-ip-input {
+  background:#1e0e35;
+  border:2px solid #3f1d6b;
+  border-radius:8px;
+  color:#f0eaf8;
+  font-size:18px;
+  padding:12px 16px;
+  width:100%;
+  max-width:280px;
+  text-align:center;
+  font-family:monospace;
+  margin:8px 0;
+  outline:none;
+  box-sizing:border-box;
+}
 #korndog-ip-input:focus { border-color:#39ff14; }
 #korndog-ip-input::placeholder { color:#6b5a80; }
-.kd-connect-btn { background:#39ff14; color:#1a0a2e; font-size:16px; font-weight:bold; padding:12px 32px; border:none; border-radius:8px; cursor:pointer; font-family:sans-serif; margin-top:8px; }
+.kd-connect-btn {
+  background:#39ff14;
+  color:#1a0a2e;
+  font-size:16px;
+  font-weight:bold;
+  padding:12px 32px;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  font-family:sans-serif;
+  margin-top:8px;
+}
 .kd-connect-btn:active { background:#2bcc0f; }
-#korndog-cast-controls { display:none; position:fixed; bottom:150px; right:10px; z-index:99999; background:#2d1450; border:1px solid #39ff14; border-radius:12px; padding:8px; flex-direction:column; gap:6px; box-shadow:0 0 12px rgba(57,255,20,0.3); }
+#korndog-cast-controls {
+  display:none;
+  position:fixed;
+  bottom:150px;
+  right:10px;
+  z-index:99999;
+  background:#2d1450;
+  border:1px solid #39ff14;
+  border-radius:12px;
+  padding:8px;
+  flex-direction:column;
+  gap:6px;
+  box-shadow:0 0 12px rgba(57,255,20,0.3);
+}
 #korndog-cast-controls.show { display:flex; }
-#korndog-cast-controls button { width:40px; height:40px; border-radius:50%; border:none; background:#3f1d6b; color:#39ff14; font-size:18px; cursor:pointer; }
+#korndog-cast-controls button {
+  width:40px;
+  height:40px;
+  border-radius:50%;
+  border:none;
+  background:#3f1d6b;
+  color:#39ff14;
+  font-size:18px;
+  cursor:pointer;
+}
 #korndog-cast-controls button:active { background:#5c2d91; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
-// Theme injection - runs on page start (only needs head)
 val KORNDOG_THEME_SCRIPT = """
 (function() {
   var existing = document.getElementById('korndog-theme');
@@ -138,7 +260,6 @@ val KORNDOG_THEME_SCRIPT = """
 })();
 """.trimIndent()
 
-// Cast button injection - deferred until body exists
 val KORNDOG_CAST_SCRIPT = """
 (function() {
   function initCastButton() {
@@ -155,154 +276,64 @@ val KORNDOG_CAST_SCRIPT = """
     document.body.appendChild(overlay);
 
     var h2 = document.createElement('h2');
-    h2.textContent = 'Cast to TV';
+    h2.textContent = 'Cast / Open in YouTube Music';
     overlay.appendChild(h2);
 
     var status = document.createElement('div');
     status.className = 'kd-status';
-    status.textContent = 'Searching for devices...';
+    status.textContent = 'Premium mode: YouTube handles playback and casting.';
     overlay.appendChild(status);
 
-    var manualBtn = document.createElement('div');
-    manualBtn.className = 'kd-manual-btn';
-    manualBtn.textContent = 'Enter TV IP Address';
-    overlay.appendChild(manualBtn);
+    var ytBtn = document.createElement('div');
+    ytBtn.className = 'kd-device';
+    ytBtn.textContent = 'Open in YouTube Music / Native Cast';
+    overlay.appendChild(ytBtn);
 
-    var ipContainer = document.createElement('div');
-    ipContainer.style.cssText = 'display:none;flex-direction:column;align-items:center;width:100%;margin-top:12px;';
-    overlay.appendChild(ipContainer);
-
-    var ipInput = document.createElement('input');
-    ipInput.id = 'korndog-ip-input';
-    ipInput.type = 'text';
-    ipInput.placeholder = '192.168.1.xxx';
-    ipInput.inputMode = 'decimal';
-    ipContainer.appendChild(ipInput);
-
-    var connectBtn = document.createElement('button');
-    connectBtn.className = 'kd-connect-btn';
-    connectBtn.textContent = 'Connect';
-    ipContainer.appendChild(connectBtn);
+    var copyBtn = document.createElement('div');
+    copyBtn.className = 'kd-device';
+    copyBtn.textContent = 'Copy Current Link';
+    overlay.appendChild(copyBtn);
 
     var closeBtn = document.createElement('div');
     closeBtn.className = 'kd-close';
     closeBtn.textContent = 'Close';
     overlay.appendChild(closeBtn);
 
-    var controls = document.createElement('div');
-    controls.id = 'korndog-cast-controls';
-    document.body.appendChild(controls);
-
-    var pauseBtn = document.createElement('button');
-    pauseBtn.id = 'kd-ctrl-pause';
-    pauseBtn.textContent = '\u23F8';
-    controls.appendChild(pauseBtn);
-
-    var stopBtn = document.createElement('button');
-    stopBtn.id = 'kd-ctrl-stop';
-    stopBtn.textContent = '\u23F9';
-    controls.appendChild(stopBtn);
-
-    var isConnected = false;
-    var showingManual = false;
-
     btn.addEventListener('click', function() {
-      if (isConnected) {
-        controls.classList.toggle('show');
-      } else {
-        overlay.classList.add('show');
-        status.textContent = 'Searching for devices...';
-        ipContainer.style.display = 'none';
-        showingManual = false;
-        var old = overlay.querySelectorAll('.kd-device');
-        for (var i = 0; i < old.length; i++) old[i].remove();
-        if (window.NouTubeI && window.NouTubeI.discoverDevices) {
-          window.NouTubeI.discoverDevices();
-        } else {
-          status.textContent = 'Cast not available';
-        }
+      overlay.classList.add('show');
+      status.textContent = 'Premium mode: YouTube handles playback and casting.';
+    });
+
+    ytBtn.addEventListener('click', function() {
+      status.textContent = 'Opening YouTube Music...';
+      if (window.NouTubeI && window.NouTubeI.openInYouTubeApp) {
+        window.NouTubeI.openInYouTubeApp();
+      } else if (window.NouTubeI && window.NouTubeI.discoverDevices) {
+        window.NouTubeI.discoverDevices();
       }
     });
 
-    manualBtn.addEventListener('click', function() {
-      if (showingManual) {
-        ipContainer.style.display = 'none';
-        showingManual = false;
-      } else {
-        ipContainer.style.display = 'flex';
-        showingManual = true;
-        ipInput.focus();
+    copyBtn.addEventListener('click', function() {
+      if (window.NouTubeI && window.NouTubeI.copyCurrentUrl) {
+        window.NouTubeI.copyCurrentUrl();
       }
-    });
-
-    connectBtn.addEventListener('click', function() {
-      var ip = ipInput.value.trim();
-      if (ip && ip.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
-        status.textContent = 'Connecting to ' + ip + '...';
-        if (window.NouTubeI && window.NouTubeI.castIpAdFree) {
-          window.NouTubeI.castIpAdFree(ip);
-        }
-      } else {
-        status.textContent = 'Please enter a valid IP address';
-      }
-    });
-
-    ipInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') connectBtn.click();
     });
 
     closeBtn.addEventListener('click', function() {
       overlay.classList.remove('show');
     });
 
-    pauseBtn.addEventListener('click', function() {
-      if (window.NouTubeI) window.NouTubeI.pauseCast();
-    });
-
-    stopBtn.addEventListener('click', function() {
-      if (window.NouTubeI) window.NouTubeI.stopCast();
-      isConnected = false;
-      btn.classList.remove('connected');
-      btn.textContent = '\uD83D\uDCFA';
-      controls.classList.remove('show');
-    });
-
     window.kdShowDevices = function(devicesJson) {
-      var devices = JSON.parse(devicesJson);
-      var old = overlay.querySelectorAll('.kd-device');
-      for (var i = 0; i < old.length; i++) old[i].remove();
-
-      if (devices.length === 0) {
-        status.textContent = 'No devices found automatically. Try entering your TV IP address below.';
-        ipContainer.style.display = 'flex';
-        showingManual = true;
-        return;
-      }
-
-      status.textContent = 'Found ' + devices.length + ' device(s):';
-      for (var j = 0; j < devices.length; j++) {
-        (function(index, name) {
-          var el = document.createElement('div');
-          el.className = 'kd-device';
-          el.textContent = name;
-          el.addEventListener('click', function() {
-            status.textContent = 'Extracting ad-free stream...';
-            window.NouTubeI.selectAndCast(index);
-          });
-          overlay.insertBefore(el, manualBtn);
-        })(j, devices[j].name);
-      }
+      status.textContent = 'Premium mode active. Use the native YouTube Music cast button after opening.';
     };
 
     window.kdCastResult = function(success, deviceName) {
       if (success) {
-        isConnected = true;
         btn.classList.add('connected');
         btn.textContent = '\uD83D\uDCFB';
         overlay.classList.remove('show');
-        controls.classList.add('show');
       } else {
-        status.textContent = 'Failed to cast to ' + deviceName + '. Check the IP and make sure DLNA is running on the TV.';
+        status.textContent = 'Use YouTube Music native casting in Premium mode.';
       }
     };
 
@@ -313,38 +344,27 @@ val KORNDOG_CAST_SCRIPT = """
       }
     };
   }
+
   setTimeout(initCastButton, 1000);
 
-  // Auto-cast when video changes
-  if (!window._kdAutocastInit) {
-    window._kdAutocastInit = true;
-    var _kdLastUrl = "";
-    setInterval(function() {
-      var url = window.location.href;
-      if (url !== _kdLastUrl && url.indexOf("watch") !== -1) {
-        _kdLastUrl = url;
-        if (window.NouTubeI && window.NouTubeI.autoCast) {
-          window.NouTubeI.autoCast();
-        }
-      }
-    }, 2000);
-  }
-
-  // Audio normalization
+  // Audio boost / normalization. Kept because it makes NouTube louder.
   if (!window._kdAudioNormInit) {
     window._kdAudioNormInit = true;
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (AudioCtx) {
       var ctx = new AudioCtx();
       window._kdAudioCtx = ctx;
+
       var compressor = ctx.createDynamicsCompressor();
       compressor.threshold.value = -35;
       compressor.knee.value = 20;
       compressor.ratio.value = 8;
       compressor.attack.value = 0.005;
       compressor.release.value = 0.2;
+
       var gainNode = ctx.createGain();
       gainNode.gain.value = 2.0;
+
       compressor.connect(gainNode);
       gainNode.connect(ctx.destination);
 
@@ -360,10 +380,15 @@ val KORNDOG_CAST_SCRIPT = """
       }
 
       function hookAll() {
-        document.querySelectorAll('audio, video').forEach(function(el) { hookAudio(el); });
+        document.querySelectorAll('audio, video').forEach(function(el) {
+          hookAudio(el);
+        });
       }
 
-      var normObserver = new MutationObserver(function() { hookAll(); });
+      var normObserver = new MutationObserver(function() {
+        hookAll();
+      });
+
       normObserver.observe(document.documentElement, { childList: true, subtree: true });
       hookAll();
       setTimeout(hookAll, 2000);
@@ -371,92 +396,88 @@ val KORNDOG_CAST_SCRIPT = """
     }
   }
 
-  // Fix double-tap to play — only for song list, NOT player controls
-  if (!window._kdPlayFixInit) {
-    window._kdPlayFixInit = true;
+  // Resume AudioContext on user touch without touching playback state.
+  if (!window._kdAudioResumeInit) {
+    window._kdAudioResumeInit = true;
     document.addEventListener('touchstart', function() {
       if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
         window._kdAudioCtx.resume();
       }
     }, { passive: true });
-    var playObserver = new MutationObserver(function() {
-      document.querySelectorAll('ytmusic-responsive-list-item-renderer, ytmusic-queue-item').forEach(function(el) {
-        if (!el._kdPlayFixed) {
-          el._kdPlayFixed = true;
-          el.addEventListener('click', function() {
-            setTimeout(function() {
-              var vid = document.querySelector('video, audio');
-              if (vid && vid.paused && vid.readyState >= 2) { vid.play().catch(function() {}); }
-              if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
-                window._kdAudioCtx.resume();
-              }
-            }, 800);
-          });
-        }
-      });
-    });
-    playObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  // 🥚 EASTER EGG — Triple-tap album art opens KornDog generator
+  // Easter egg: triple-tap album art opens KornDog generator.
   if (!window._kdEasterEggInit) {
     window._kdEasterEggInit = true;
     var _kdTapCount = 0;
     var _kdTapTimer = null;
 
-    function watchAlbumArt() {
-      var selectors = [
-        'ytmusic-player-bar img',
-        '#thumbnail img',
-        '.thumbnail img',
-        'ytmusic-large-image-view img',
-        'ytmusic-player img'
-      ];
-      selectors.forEach(function(sel) {
-        document.querySelectorAll(sel).forEach(function(el) {
-          if (!el._kdEggWatched) {
-            el._kdEggWatched = true;
-            el.addEventListener('click', function() {
-              _kdTapCount++;
-              clearTimeout(_kdTapTimer);
-              if (_kdTapCount >= 3) {
-                _kdTapCount = 0;
-                fireKornDogGenerator();
-              } else {
-                _kdTapTimer = setTimeout(function() { _kdTapCount = 0; }, 600);
-              }
-            });
-          }
-        });
-      });
-    }
-
     function fireKornDogGenerator() {
       try {
-        var titleEl = document.querySelector('.title.ytmusic-player-bar, ytmusic-player-bar .title');
-        var artistEl = document.querySelector('.byline.ytmusic-player-bar, ytmusic-player-bar .subtitle');
-        var thumbEl = document.querySelector('ytmusic-player-bar img, #thumbnail img');
+        var titleEl =
+          document.querySelector('.title.ytmusic-player-bar') ||
+          document.querySelector('ytmusic-player-bar .title') ||
+          document.querySelector('.content-info-wrapper .title');
+
+        var artistEl =
+          document.querySelector('.byline.ytmusic-player-bar') ||
+          document.querySelector('ytmusic-player-bar .subtitle') ||
+          document.querySelector('.content-info-wrapper .subtitle');
+
+        var thumbEl =
+          document.querySelector('ytmusic-player-bar img') ||
+          document.querySelector('#thumbnail img') ||
+          document.querySelector('.thumbnail img') ||
+          document.querySelector('ytmusic-large-image-view img') ||
+          document.querySelector('ytmusic-player img');
+
         var title = titleEl ? titleEl.textContent.trim() : '';
         var artist = artistEl ? artistEl.textContent.trim() : '';
         var thumb = thumbEl ? thumbEl.src : '';
+
         var params = new URLSearchParams();
         if (artist) params.set('artist', artist);
         if (title) params.set('album', title);
         if (thumb) params.set('thumb', thumb);
-        params.set('from', 'ghostkernel');
+        params.set('from', 'premium-shell');
+
         window.open('https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString(), '_blank');
       } catch(e) {}
     }
 
-    var eggObserver = new MutationObserver(function() { watchAlbumArt(); });
-    eggObserver.observe(document.documentElement, { childList: true, subtree: true });
-    watchAlbumArt();
+    document.addEventListener('click', function(e) {
+      var art = e.target.closest(
+        'ytmusic-player-bar img, #thumbnail img, .thumbnail img, ytmusic-large-image-view img, ytmusic-player img'
+      );
+
+      if (!art) return;
+
+      _kdTapCount++;
+      clearTimeout(_kdTapTimer);
+
+      if (_kdTapCount >= 3) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+        _kdTapCount = 0;
+        fireKornDogGenerator();
+        return false;
+      }
+
+      _kdTapTimer = setTimeout(function() {
+        _kdTapCount = 0;
+      }, 700);
+    }, true);
   }
 })();
 """.trimIndent()
 
-class NouWebView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) :
-  WebView(context, attrs, defStyleAttr) {
+class NouWebView @JvmOverloads constructor(
+  context: Context,
+  attrs: AttributeSet? = null,
+  defStyleAttr: Int = 0
+) : WebView(context, attrs, defStyleAttr) {
 
   override fun onWindowVisibilityChanged(visibility: Int) {
     super.onWindowVisibilityChanged(VISIBLE)
@@ -479,15 +500,18 @@ class NouWebView @JvmOverloads constructor(context: Context, attrs: AttributeSet
   suspend fun eval(script: String): String? = suspendCancellableCoroutine { cont ->
     evaluateJavascript(script) { result ->
       if (result == "null") {
-        cont.resume(null, null)
+        cont.resume(null)
       } else {
-        cont.resume(result.removeSurrounding("\""), null)
+        cont.resume(result.removeSurrounding("\""))
       }
     }
   }
 }
 
-class NouOrientationListener(context: Context, private val view: NouTubeView) : OrientationEventListener(context) {
+class NouOrientationListener(
+  context: Context,
+  private val view: NouTubeView
+) : OrientationEventListener(context) {
   override fun onOrientationChanged(orientation: Int) {
     view.onOrientationChanged(orientation)
   }
@@ -524,17 +548,19 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   override fun onCreateContextMenu(menu: ContextMenu) {
     super.onCreateContextMenu(menu)
-    val result = webView.getHitTestResult()
+    val result = webView.hitTestResult
     val activity = currentActivity
     var url: String? = null
-    if (result.getType() == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
-      url = result.getExtra()
-    } else if (result.getType() == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
-      val href = webView.getHandler().obtainMessage()
+
+    if (result.type == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
+      url = result.extra
+    } else if (result.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+      val href = webView.handler.obtainMessage()
       webView.requestFocusNodeHref(href)
-      val data = href.getData()
+      val data = href.data
       if (data != null) url = data.getString("url")
     }
+
     if (url != null && activity != null) {
       val onCopyLink = object : MenuItem.OnMenuItemClickListener {
         override fun onMenuItemClick(item: MenuItem): Boolean {
@@ -551,10 +577,12 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
   internal val webView: NouWebView =
     NouWebView(context).apply {
       layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+
       setOnTouchListener { _, event ->
         gestureDetector.onTouchEvent(event)
         false
       }
+
       webViewClient = object : WebViewClient() {
         override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
           if (pageUrl != url) {
@@ -573,22 +601,20 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-          if (request.url.host in BLOCK_HOSTS) {
-            return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
-          }
           return null
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
           val uri = Uri.parse(url)
-          if (uri.host in VIEW_HOSTS ||
+          if (
+            uri.host in VIEW_HOSTS ||
             (uri.host?.startsWith("accounts.google.") == true) ||
             (uri.host?.startsWith("gds.google.") == true) ||
             (uri.host?.endsWith(".youtube.com") == true)
           ) {
             return false
           } else {
-            view.getContext().startActivity(Intent(Intent.ACTION_VIEW, uri))
+            view.context.startActivity(Intent(Intent.ACTION_VIEW, uri))
             return true
           }
         }
@@ -597,35 +623,64 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
       webChromeClient = object : WebChromeClient() {
         override fun onPermissionRequest(request: PermissionRequest) {
           val activity = currentActivity
-          if (activity == null) { request.deny(); return }
+          if (activity == null) {
+            request.deny()
+            return
+          }
+
           val resources = request.resources
           val permissionsToRequest = mutableListOf<String>()
-          if (resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+
+          if (resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
             permissionsToRequest.add(android.Manifest.permission.RECORD_AUDIO)
-          if (resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+          }
+
+          if (resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
             permissionsToRequest.add(android.Manifest.permission.CAMERA)
-          if (permissionsToRequest.isEmpty()) { request.grant(resources); return }
+          }
+
+          if (permissionsToRequest.isEmpty()) {
+            request.grant(resources)
+            return
+          }
+
           activity.requestPermissions(permissionsToRequest.toTypedArray(), 101)
           request.grant(resources)
         }
 
         override fun onJsBeforeUnload(view: WebView, url: String, message: String, result: JsResult): Boolean {
-          result.confirm(); return true
+          result.confirm()
+          return true
         }
 
-        override fun onShowCustomView(view: View, cllback: CustomViewCallback) {
+        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
           customView = view
-          view.setKeepScreenOn(true)
+          view.keepScreenOn = true
+
           val activity = currentActivity ?: return
           val window = activity.window
+
           (window.decorView as FrameLayout).addView(
-            view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            view,
+            FrameLayout.LayoutParams(
+              ViewGroup.LayoutParams.MATCH_PARENT,
+              ViewGroup.LayoutParams.MATCH_PARENT
+            )
           )
-          activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+
+          activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
           val controller = WindowCompat.getInsetsController(window, window.decorView)
           controller.hide(WindowInsetsCompat.Type.systemBars())
           controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-          if (Settings.System.getInt(activity.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1) {
+
+          if (
+            Settings.System.getInt(
+              activity.contentResolver,
+              Settings.System.ACCELEROMETER_ROTATION,
+              0
+            ) == 1
+          ) {
             orientationListener.enable()
           }
         }
@@ -633,13 +688,17 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         override fun onHideCustomView() {
           val activity = currentActivity ?: return
           val window = activity.window
+
           (window.decorView as FrameLayout).removeView(customView)
-          customView?.setKeepScreenOn(false)
+          customView?.keepScreenOn = false
           customView = null
-          activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER)
+
+          activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
+
           val controller = WindowCompat.getInsetsController(window, window.decorView)
           controller.show(WindowInsetsCompat.Type.systemBars())
           controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+
           this@apply.requestFocus()
           orientationListener.disable()
         }
@@ -657,6 +716,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun initService() {
     val activity = currentActivity ?: return
+
     val connection = object : ServiceConnection {
       override fun onServiceConnected(name: ComponentName, binder: IBinder) {
         val nouBinder = binder as NouService.NouBinder
@@ -665,14 +725,18 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         nouController.service = service
         nouController.applyPendingSleepTimer()
       }
+
       override fun onServiceDisconnected(name: ComponentName) {}
     }
+
     val intent = Intent(activity, NouService::class.java)
     activity.bindService(intent, connection, Context.BIND_AUTO_CREATE)
     orientationListener = NouOrientationListener(activity, this)
   }
 
-  fun setScriptOnStart(script: String) { scriptOnStart = script }
+  fun setScriptOnStart(script: String) {
+    scriptOnStart = script
+  }
 
   fun clearData() {
     val cookieManager = CookieManager.getInstance()
@@ -706,14 +770,17 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun onOrientationChanged(orientation: Int) {
     val activity = currentActivity
-    if (activity?.getRequestedOrientation() == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE &&
+    if (
+      activity?.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE &&
       (orientation in 70..110 || orientation in 250..290)
     ) {
-      activity?.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER)
+      activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
     }
   }
 
   fun getPageUrl(): String = pageUrl
 
-  fun exit() { service?.exit() }
+  fun exit() {
+    service?.exit()
+  }
 }
