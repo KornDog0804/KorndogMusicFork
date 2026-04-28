@@ -1,4 +1,4 @@
-name: Build KornDog APK Debug Installable
+name: Build KornDog APK Temp Installable
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: korndog-debug-build
+  group: korndog-temp-installable
   cancel-in-progress: true
 
 permissions:
@@ -70,53 +70,73 @@ jobs:
           kotlin.incremental=true
           EOF
 
-      - name: Build Debug APK
+      - name: Force Release To Use Debug Signing
+        run: |
+          python3 - << 'PY'
+          from pathlib import Path
+
+          p = Path("android/app/build.gradle")
+          s = p.read_text()
+
+          s = s.replace("signingConfig signingConfigs.release", "signingConfig signingConfigs.debug")
+
+          p.write_text(s)
+
+          print("---- signing check ----")
+          for i, line in enumerate(s.splitlines(), 1):
+              if "signingConfig" in line or "signingConfigs" in line:
+                  print(f"{i}: {line}")
+          PY
+
+      - name: Build Installable Release APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug \
+          ./gradlew assembleRelease \
             --build-cache \
             --parallel \
             --stacktrace
 
-      - name: Find Debug APK Files
+      - name: Find APK Files
         run: |
-          echo "=== Debug APK files ==="
-          find android/app/build/outputs -type f -name "*debug*.apk" -print -exec ls -lh {} \;
+          echo "=== APK files ==="
+          find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
 
-      - name: Prepare Debug APK
+      - name: Prepare Installable APK
         run: |
-          rm -rf debug-apks
-          mkdir -p debug-apks
-          find android/app/build/outputs -type f -name "*debug*.apk" -exec cp {} debug-apks/ \;
-          ls -lh debug-apks/
-          test -n "$(ls -A debug-apks/*.apk 2>/dev/null)"
+          rm -rf release-apks
+          mkdir -p release-apks
+          find android/app/build/outputs -type f -name "*release*.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
+          echo "=== Prepared APKs ==="
+          ls -lh release-apks/
+          test -n "$(ls -A release-apks/*.apk 2>/dev/null)"
 
-      - name: Upload Debug APK Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: korndog-noutube-debug-installable-apk
-          path: debug-apks/*.apk
+          name: korndog-noutube-temp-installable-release-apk
+          path: release-apks/*.apk
           retention-days: 30
           if-no-files-found: error
 
-      - name: Upload GitHub Debug Release
+      - name: Upload GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: debug-apks/*.apk
-          tag_name: debug-build-${{ github.run_id }}
-          name: "KornDog Debug Build #${{ github.run_number }}"
+          files: release-apks/*.apk
+          tag_name: temp-installable-${{ github.run_id }}
+          name: "KornDog Temp Installable Build #${{ github.run_number }}"
           body: |
-            KornDog debug APK build.
+            KornDog temporary installable release APK.
 
-            This is installable because debug APKs are signed with Android's debug key.
+            This is a RELEASE build with bundled JS, signed using the debug signing config.
 
-            Install:
-            adb install -r app-arm64-v8a-debug.apk
+            Use this until the new real release keystore is created.
+
+            If Android says app not installed, uninstall the previous KornDog/NouTube app first.
           draft: false
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Complete
-        run: echo "✅ Debug APK ready"
+        run: echo "✅ Temp installable release APK ready"
