@@ -81,6 +81,10 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$PWD/app/korndog-release.keystore \
+            -Pandroid.injected.signing.store.password="KornDog2024!" \
+            -Pandroid.injected.signing.key.alias="korndog" \
+            -Pandroid.injected.signing.key.password="KornDog2024!" \
             --build-cache \
             --parallel \
             --stacktrace
