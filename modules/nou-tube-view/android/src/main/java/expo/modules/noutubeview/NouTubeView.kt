@@ -274,7 +274,7 @@ val KORNDOG_CAST_SCRIPT = """
 
   setTimeout(initPremiumCastButton, 1000);
 
-  // Audio normalization — keep the louder KornDog sound.
+  // Audio normalization — 2.0x gain for KornDog signature sound
   if (!window._kdAudioNormInit) {
     window._kdAudioNormInit = true;
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -332,13 +332,12 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // Triple-tap album art opens KornDog generator.
-  if (!window._kdEasterEggInit) {
-    window._kdEasterEggInit = true;
+  // Triple-tap to open KornDog generator (with fullscreen prevention)
+  if (!window._kdGeneratorTapInit) {
+    window._kdGeneratorTapInit = true;
 
-    var _kdTapCount = 0;
-    var _kdTapTimer = null;
-    var _kdLastTapTime = 0;
+    var _genTaps = 0;
+    var _genTimer = null;
 
     function kdText(selList) {
       for (var i = 0; i < selList.length; i++) {
@@ -411,61 +410,46 @@ val KORNDOG_CAST_SCRIPT = """
       } catch(e) {}
     }
 
-    function isAlbumArtTap(target) {
-      if (!target) return false;
-      if (document.fullscreenElement || document.webkitFullscreenElement) return false;
-
-      var hit = target.closest(
-        'ytmusic-player-page, ytmusic-player-bar, #thumbnail, .thumbnail, img'
-      );
-
-      if (!hit) return false;
-
-      var rect = hit.getBoundingClientRect();
-      return rect.width > 40 && rect.height > 40;
-    }
-
     document.addEventListener('pointerdown', function(e) {
-      if (!isAlbumArtTap(e.target)) return;
+      var img = e.target.closest('img[src*="ytimg"], img[src*="googleusercontent"], ytmusic-player-page, ytmusic-player-bar');
+      if (!img) return;
 
-      var now = Date.now();
+      var rect = img.getBoundingClientRect();
+      if (rect.width < 40 || rect.height < 40) return;
 
-      if (now - _kdLastTapTime > 850) {
-        _kdTapCount = 0;
-      }
+      // PREVENT FULLSCREEN - critical for triple-tap
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
 
-      _kdLastTapTime = now;
-      _kdTapCount++;
+      _genTaps++;
+      clearTimeout(_genTimer);
 
-      clearTimeout(_kdTapTimer);
-
-      if (_kdTapCount >= 3) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-
-        _kdTapCount = 0;
+      if (_genTaps >= 3) {
+        _genTaps = 0;
         fireKornDogGenerator();
         return false;
       }
 
-      _kdTapTimer = setTimeout(function() {
-        _kdTapCount = 0;
-      }, 850);
+      _genTimer = setTimeout(function() {
+        _genTaps = 0;
+      }, 400);
     }, true);
   }
 
-  // ── AGGRESSIVE BUFFER STRATEGY — Fixed to allow initial playback ──────────
-  if (!window._kdBufferStrategyInit) {
-    window._kdBufferStrategyInit = true;
+  // ── PREMIUM-LIKE BUFFER STRATEGY ─────────────────────────────────────────
+  // Seamless offline/background playback, track transitions, phone-off support
+  if (!window._kdPremiumBufferInit) {
+    window._kdPremiumBufferInit = true;
 
     var currentTime = 0;
     var duration = 0;
     var bufferedEnd = 0;
     var bufferThreshold = 10;
     var isOnline = navigator.onLine;
-    var forcePauseAllowed = false;
     var playbackAttempted = false;
+    var forcePauseAllowed = false;
+    var currentTrackId = '';
 
     function updateBufferState() {
       try {
@@ -521,11 +505,10 @@ val KORNDOG_CAST_SCRIPT = """
       
       updateBufferState();
       var margin = getBufferMargin();
-      var safe = hasEnoughBuffer() ? '✅' : '⚠️';
       var status = isOnline ? '🌐' : '📡';
       
       window._kdBufferStatus.textContent = 
-        status + ' Buffer: ' + margin.toFixed(1) + 's ahead';
+        status + ' Buffer: ' + margin.toFixed(1) + 's | ' + (playbackAttempted ? '▶️' : '⏸️');
       
       if (margin < 5) {
         window._kdBufferStatus.style.borderColor = 'rgba(255,75,106,0.5)';
@@ -538,45 +521,73 @@ val KORNDOG_CAST_SCRIPT = """
 
     setInterval(updateBufferDisplay, 100);
 
-    // Track when playback is attempted
+    // Track ID for detecting track changes
+    function getCurrentTrackId() {
+      var el = document.querySelector('ytmusic-player-bar .title, .content-info-wrapper .title');
+      if (el) return el.textContent;
+      return '';
+    }
+
+    // RESET on new track
+    document.addEventListener('loadstart', function(e) {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        var newTrackId = getCurrentTrackId();
+        if (newTrackId && newTrackId !== currentTrackId) {
+          console.log('🔄 Track transition: ' + newTrackId);
+          currentTrackId = newTrackId;
+          playbackAttempted = false;
+          forcePauseAllowed = false;
+        }
+      }
+    }, true);
+
+    // RESET on emptied (between tracks)
+    var videos = document.querySelectorAll('video');
+    videos.forEach(function(video) {
+      video.addEventListener('emptied', function() {
+        console.log('🔄 Media emptied, resetting for next track');
+        playbackAttempted = false;
+        forcePauseAllowed = false;
+      });
+    });
+
+    // Allow PLAY to always fire
     document.addEventListener('play', function(e) {
       playbackAttempted = true;
-      console.log('▶️ GhostKernel: Playback initiated');
+      console.log('▶️ Playback started');
       if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
         window._kdAudioCtx.resume();
       }
     }, true);
 
-    // Only block pause AFTER playback has been attempted AND offline with buffer
+    // Smart PAUSE blocking — only block offline with buffer safety
     document.addEventListener('pause', function(e) {
-      // Allow pause during initial load/setup
-      if (!playbackAttempted) return;
+      if (!playbackAttempted) return; // Allow pause during setup
 
       updateBufferState();
       
       var hasBuffer = hasEnoughBuffer();
-      var shouldPreventPause = !isOnline && hasBuffer;
+      var shouldPreventPause = !isOnline && hasBuffer && !forcePauseAllowed;
 
-      if (shouldPreventPause && !forcePauseAllowed) {
-        console.log('🔒 GhostKernel: Buffer safe (' + getBufferMargin().toFixed(1) + 's), blocking pause');
+      if (shouldPreventPause) {
+        console.log('🔒 Buffer safe (' + getBufferMargin().toFixed(1) + 's), blocking pause');
         e.preventDefault();
         e.stopPropagation();
-        e.stopImmediatePropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         
         var video = document.querySelector('video');
-        if (video) {
-          video.play().catch(function(err) {
-            console.log('Resume failed:', err);
-          });
+        if (video && video.paused) {
+          video.play().catch(function() {});
         }
         
         return false;
       }
     }, true);
 
+    // Online/offline handlers
     window.addEventListener('online', function() {
       isOnline = true;
-      console.log('🌐 GhostKernel: Online');
+      console.log('🌐 Back online');
       
       var video = document.querySelector('video');
       if (video && video.paused && playbackAttempted) {
@@ -589,24 +600,24 @@ val KORNDOG_CAST_SCRIPT = """
       updateBufferState();
       
       if (hasEnoughBuffer() && playbackAttempted) {
-        console.log('📡 GhostKernel: Offline but buffer safe (' + getBufferMargin().toFixed(1) + 's), continuing playback');
-        
+        console.log('📡 Offline, buffer safe (' + getBufferMargin().toFixed(1) + 's)');
         var video = document.querySelector('video');
         if (video && video.paused) {
           video.play().catch(function() {});
         }
-      } else if (playbackAttempted) {
-        console.log('📡 GhostKernel: Offline and buffer critical, pause allowed');
+      } else {
+        console.log('📡 Offline, buffer critical or not playing');
       }
     });
 
+    // Monitor buffer margin
     setInterval(function() {
       if (!playbackAttempted) return;
       
       updateBufferState();
       
       if (!isOnline && getBufferMargin() < 3) {
-        console.log('⚠️ GhostKernel: Buffer critical (' + getBufferMargin().toFixed(1) + 's)');
+        console.log('⚠️ Critical buffer (' + getBufferMargin().toFixed(1) + 's)');
         forcePauseAllowed = true;
         setTimeout(function() {
           forcePauseAllowed = false;
@@ -614,6 +625,7 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, 500);
 
+    // Keep audio context alive
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (AudioCtx && !window._kdAudioCtxResilience) {
       window._kdAudioCtxResilience = true;
@@ -631,6 +643,17 @@ val KORNDOG_CAST_SCRIPT = """
           ctx.resume().catch(function() {});
         }
       }, 2000);
+    }
+
+    // Prevent screen from locking during playback
+    if (window.NouTubeI && window.NouTubeI.keepScreenOn) {
+      document.addEventListener('play', function() {
+        window.NouTubeI.keepScreenOn(true);
+      }, true);
+      
+      document.addEventListener('pause', function() {
+        window.NouTubeI.keepScreenOn(false);
+      }, true);
     }
   }
 })();
