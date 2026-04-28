@@ -455,7 +455,7 @@ val KORNDOG_CAST_SCRIPT = """
     }, true);
   }
 
-  // Aggressive buffer strategy — no pause if we have data queued ahead
+  // ── AGGRESSIVE BUFFER STRATEGY — Fixed to allow initial playback ──────────
   if (!window._kdBufferStrategyInit) {
     window._kdBufferStrategyInit = true;
 
@@ -465,6 +465,7 @@ val KORNDOG_CAST_SCRIPT = """
     var bufferThreshold = 10;
     var isOnline = navigator.onLine;
     var forcePauseAllowed = false;
+    var playbackAttempted = false;
 
     function updateBufferState() {
       try {
@@ -537,7 +538,20 @@ val KORNDOG_CAST_SCRIPT = """
 
     setInterval(updateBufferDisplay, 100);
 
+    // Track when playback is attempted
+    document.addEventListener('play', function(e) {
+      playbackAttempted = true;
+      console.log('▶️ GhostKernel: Playback initiated');
+      if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
+        window._kdAudioCtx.resume();
+      }
+    }, true);
+
+    // Only block pause AFTER playback has been attempted AND offline with buffer
     document.addEventListener('pause', function(e) {
+      // Allow pause during initial load/setup
+      if (!playbackAttempted) return;
+
       updateBufferState();
       
       var hasBuffer = hasEnoughBuffer();
@@ -560,24 +574,12 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, true);
 
-    document.addEventListener('pause', function(e) {
-      if (!isOnline && e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
-        updateBufferState();
-        if (hasEnoughBuffer()) {
-          console.log('🛑 GhostKernel: Offline pause blocked, buffer: ' + getBufferMargin().toFixed(1) + 's');
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        }
-      }
-    }, true);
-
     window.addEventListener('online', function() {
       isOnline = true;
       console.log('🌐 GhostKernel: Online');
       
       var video = document.querySelector('video');
-      if (video && video.paused) {
+      if (video && video.paused && playbackAttempted) {
         video.play().catch(function() {});
       }
     });
@@ -586,19 +588,21 @@ val KORNDOG_CAST_SCRIPT = """
       isOnline = false;
       updateBufferState();
       
-      if (hasEnoughBuffer()) {
+      if (hasEnoughBuffer() && playbackAttempted) {
         console.log('📡 GhostKernel: Offline but buffer safe (' + getBufferMargin().toFixed(1) + 's), continuing playback');
         
         var video = document.querySelector('video');
         if (video && video.paused) {
           video.play().catch(function() {});
         }
-      } else {
+      } else if (playbackAttempted) {
         console.log('📡 GhostKernel: Offline and buffer critical, pause allowed');
       }
     });
 
     setInterval(function() {
+      if (!playbackAttempted) return;
+      
       updateBufferState();
       
       if (!isOnline && getBufferMargin() < 3) {
