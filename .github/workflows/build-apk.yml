@@ -1,4 +1,4 @@
-name: Build KornDog APK Temp Installable
+name: Build KornDog APK Signed Release
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: korndog-temp-installable
+  group: korndog-signed-release
   cancel-in-progress: true
 
 permissions:
@@ -58,6 +58,12 @@ jobs:
             npx expo prebuild --platform android --no-install
           fi
 
+      - name: Decode Keystore to android/app
+        run: |
+          mkdir -p android/app
+          echo "${{ secrets.KORNDOG_KEYSTORE_B64 }}" | base64 -d > android/app/korndog-release.keystore
+          ls -lh android/app/korndog-release.keystore
+
       - name: Setup Gradle Memory
         run: |
           mkdir -p ~/.gradle
@@ -81,61 +87,23 @@ jobs:
 
       - name: Find APK Files
         run: |
-          echo "=== APK files ==="
           find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
 
-      - name: Decode and Setup Keystore
+      - name: Copy Signed ARM64 APK
         run: |
-          echo "${{ secrets.KORNDOG_KEYSTORE_B64 }}" | base64 -d > /tmp/korndog-release.keystore
-          if [ ! -f /tmp/korndog-release.keystore ]; then
-            echo "❌ Keystore not found!"
-            exit 1
-          fi
-          ls -lh /tmp/korndog-release.keystore
-          echo "✅ Keystore decoded successfully"
-
-      - name: Sign Unsigned Release APK With Production Key
-        run: |
-          rm -rf release-apks
           mkdir -p release-apks
-
-          APK_IN=$(find android/app/build/outputs -type f -name "*arm64*release-unsigned.apk" | head -1)
-
-          if [ -z "$APK_IN" ]; then
-            APK_IN=$(find android/app/build/outputs -type f -name "*.apk" | head -1)
-          fi
-
-          if [ -z "$APK_IN" ]; then
-            echo "No APK found."
+          SIGNED_APK=$(find android/app/build/outputs -type f -name "*arm64*v8a*release*.apk" ! -name "*unsigned*" | head -1)
+          if [ -z "$SIGNED_APK" ]; then
+            echo "No signed APK found"
             exit 1
           fi
-
-          echo "Using APK: $APK_IN"
-
-          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          echo "Using build tools: $BUILD_TOOLS"
-
-          "$BUILD_TOOLS/zipalign" -f -p 4 "$APK_IN" release-apks/app-arm64-v8a-release-aligned.apk
-
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks /tmp/korndog-release.keystore \
-            --ks-pass pass:password \
-            --ks-key-alias korndog \
-            --key-pass pass:password \
-            --out release-apks/app-arm64-v8a-release-signed.apk \
-            release-apks/app-arm64-v8a-release-aligned.apk
-
-          "$BUILD_TOOLS/apksigner" verify --verbose release-apks/app-arm64-v8a-release-signed.apk
-
-          rm -f release-apks/app-arm64-v8a-release-aligned.apk
-
-          echo "=== Final installable APK ==="
+          cp "$SIGNED_APK" release-apks/app-arm64-v8a-release-signed.apk
           ls -lh release-apks/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: korndog-noutube-temp-installable-apk
+          name: korndog-noutube-signed-release-apk
           path: release-apks/*.apk
           retention-days: 30
           if-no-files-found: error
@@ -144,22 +112,15 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: release-apks/*.apk
-          tag_name: temp-installable-${{ github.run_id }}
-          name: "KornDog Temp Installable Build #${{ github.run_number }}"
+          tag_name: signed-release-${{ github.run_id }}
+          name: "KornDog Signed Release Build #${{ github.run_number }}"
           body: |
-            🤘 KornDog temporary installable APK.
+            🤘 KornDog APK - Production Signed
 
-            This is a release build with bundled JS, signed with the KornDog production key.
-
-            **Install this file:** app-arm64-v8a-release-signed.apk
-
-            If Android says app not installed, uninstall the previous KornDog/NouTube app first.
+            Install: app-arm64-v8a-release-signed.apk
 
             `adb install -r app-arm64-v8a-release-signed.apk`
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Complete
-        run: echo "✅ Production signed APK ready"
