@@ -454,6 +454,181 @@ val KORNDOG_CAST_SCRIPT = """
       }, 850);
     }, true);
   }
+
+  // Aggressive buffer strategy — no pause if we have data queued ahead
+  if (!window._kdBufferStrategyInit) {
+    window._kdBufferStrategyInit = true;
+
+    var currentTime = 0;
+    var duration = 0;
+    var bufferedEnd = 0;
+    var bufferThreshold = 10;
+    var isOnline = navigator.onLine;
+    var forcePauseAllowed = false;
+
+    function updateBufferState() {
+      try {
+        var video = document.querySelector('video');
+        if (!video) return;
+
+        currentTime = video.currentTime || 0;
+        duration = video.duration || 0;
+
+        if (video.buffered && video.buffered.length > 0) {
+          bufferedEnd = video.buffered.end(video.buffered.length - 1);
+        }
+      } catch (e) {}
+    }
+
+    function getBufferMargin() {
+      return bufferedEnd - currentTime;
+    }
+
+    function hasEnoughBuffer() {
+      return getBufferMargin() >= bufferThreshold;
+    }
+
+    function createBufferStatus() {
+      if (document.getElementById('korndog-buffer-status')) return;
+      
+      var status = document.createElement('div');
+      status.id = 'korndog-buffer-status';
+      status.style.cssText =
+        'position:fixed;' +
+        'top:16px;' +
+        'right:16px;' +
+        'z-index:999999;' +
+        'background:rgba(45,20,80,0.88);' +
+        'border:1px solid rgba(57,255,20,0.35);' +
+        'border-radius:8px;' +
+        'padding:8px 12px;' +
+        'color:#39ff14;' +
+        'font-size:11px;' +
+        'font-weight:700;' +
+        'display:none;' +
+        'backdrop-filter:blur(8px);' +
+        'box-shadow:0 0 12px rgba(57,255,20,0.15);' +
+        'font-family:monospace;';
+      document.body.appendChild(status);
+      window._kdBufferStatus = status;
+    }
+
+    createBufferStatus();
+
+    function updateBufferDisplay() {
+      if (!window._kdBufferStatus) return;
+      
+      updateBufferState();
+      var margin = getBufferMargin();
+      var safe = hasEnoughBuffer() ? '✅' : '⚠️';
+      var status = isOnline ? '🌐' : '📡';
+      
+      window._kdBufferStatus.textContent = 
+        status + ' Buffer: ' + margin.toFixed(1) + 's ahead';
+      
+      if (margin < 5) {
+        window._kdBufferStatus.style.borderColor = 'rgba(255,75,106,0.5)';
+        window._kdBufferStatus.style.color = '#ff4b6a';
+      } else {
+        window._kdBufferStatus.style.borderColor = 'rgba(57,255,20,0.35)';
+        window._kdBufferStatus.style.color = '#39ff14';
+      }
+    }
+
+    setInterval(updateBufferDisplay, 100);
+
+    document.addEventListener('pause', function(e) {
+      updateBufferState();
+      
+      var hasBuffer = hasEnoughBuffer();
+      var shouldPreventPause = !isOnline && hasBuffer;
+
+      if (shouldPreventPause && !forcePauseAllowed) {
+        console.log('🔒 GhostKernel: Buffer safe (' + getBufferMargin().toFixed(1) + 's), blocking pause');
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        var video = document.querySelector('video');
+        if (video) {
+          video.play().catch(function(err) {
+            console.log('Resume failed:', err);
+          });
+        }
+        
+        return false;
+      }
+    }, true);
+
+    document.addEventListener('pause', function(e) {
+      if (!isOnline && e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        updateBufferState();
+        if (hasEnoughBuffer()) {
+          console.log('🛑 GhostKernel: Offline pause blocked, buffer: ' + getBufferMargin().toFixed(1) + 's');
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        }
+      }
+    }, true);
+
+    window.addEventListener('online', function() {
+      isOnline = true;
+      console.log('🌐 GhostKernel: Online');
+      
+      var video = document.querySelector('video');
+      if (video && video.paused) {
+        video.play().catch(function() {});
+      }
+    });
+
+    window.addEventListener('offline', function() {
+      isOnline = false;
+      updateBufferState();
+      
+      if (hasEnoughBuffer()) {
+        console.log('📡 GhostKernel: Offline but buffer safe (' + getBufferMargin().toFixed(1) + 's), continuing playback');
+        
+        var video = document.querySelector('video');
+        if (video && video.paused) {
+          video.play().catch(function() {});
+        }
+      } else {
+        console.log('📡 GhostKernel: Offline and buffer critical, pause allowed');
+      }
+    });
+
+    setInterval(function() {
+      updateBufferState();
+      
+      if (!isOnline && getBufferMargin() < 3) {
+        console.log('⚠️ GhostKernel: Buffer critical (' + getBufferMargin().toFixed(1) + 's)');
+        forcePauseAllowed = true;
+        setTimeout(function() {
+          forcePauseAllowed = false;
+        }, 1000);
+      }
+    }, 500);
+
+    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx && !window._kdAudioCtxResilience) {
+      window._kdAudioCtxResilience = true;
+      var ctx = new AudioCtx();
+      
+      document.addEventListener('play', function(e) {
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(function() {});
+        }
+      }, true);
+      
+      setInterval(function() {
+        var video = document.querySelector('video');
+        if (video && !video.paused && ctx.state === 'suspended') {
+          ctx.resume().catch(function() {});
+        }
+      }, 2000);
+    }
+  }
 })();
 """.trimIndent()
 
