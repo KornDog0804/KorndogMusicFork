@@ -84,7 +84,17 @@ jobs:
           echo "=== APK files ==="
           find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
 
-      - name: Sign Unsigned Release APK With Debug Key
+      - name: Decode and Setup Keystore
+        run: |
+          echo "${{ secrets.KORNDOG_KEYSTORE_B64 }}" | base64 -d > /tmp/korndog-release.keystore
+          if [ ! -f /tmp/korndog-release.keystore ]; then
+            echo "❌ Keystore not found!"
+            exit 1
+          fi
+          ls -lh /tmp/korndog-release.keystore
+          echo "✅ Keystore decoded successfully"
+
+      - name: Sign Unsigned Release APK With Production Key
         run: |
           rm -rf release-apks
           mkdir -p release-apks
@@ -102,35 +112,20 @@ jobs:
 
           echo "Using APK: $APK_IN"
 
-          mkdir -p ~/.android
-
-          if [ ! -f ~/.android/debug.keystore ]; then
-            keytool -genkeypair \
-              -v \
-              -keystore ~/.android/debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
           BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           echo "Using build tools: $BUILD_TOOLS"
 
           "$BUILD_TOOLS/zipalign" -f -p 4 "$APK_IN" release-apks/app-arm64-v8a-release-aligned.apk
 
           "$BUILD_TOOLS/apksigner" sign \
-            --ks ~/.android/debug.keystore \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --ks-key-alias androiddebugkey \
-            --out release-apks/app-arm64-v8a-release-debugsigned.apk \
+            --ks /tmp/korndog-release.keystore \
+            --ks-pass pass:password \
+            --ks-key-alias korndog \
+            --key-pass pass:password \
+            --out release-apks/app-arm64-v8a-release-signed.apk \
             release-apks/app-arm64-v8a-release-aligned.apk
 
-          "$BUILD_TOOLS/apksigner" verify --verbose release-apks/app-arm64-v8a-release-debugsigned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose release-apks/app-arm64-v8a-release-signed.apk
 
           rm -f release-apks/app-arm64-v8a-release-aligned.apk
 
@@ -154,17 +149,17 @@ jobs:
           body: |
             🤘 KornDog temporary installable APK.
 
-            This is a release build with bundled JS, manually signed using Android debug signing.
+            This is a release build with bundled JS, signed with the KornDog production key.
 
-            **Install this file:** app-arm64-v8a-release-debugsigned.apk
+            **Install this file:** app-arm64-v8a-release-signed.apk
 
             If Android says app not installed, uninstall the previous KornDog/NouTube app first.
 
-            `adb install -r app-arm64-v8a-release-debugsigned.apk`
+            `adb install -r app-arm64-v8a-release-signed.apk`
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Complete
-        run: echo "✅ Temp installable APK ready"
+        run: echo "✅ Production signed APK ready"
