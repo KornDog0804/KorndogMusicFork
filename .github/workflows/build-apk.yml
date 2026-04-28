@@ -70,25 +70,7 @@ jobs:
           kotlin.incremental=true
           EOF
 
-      - name: Force Release To Use Debug Signing
-        run: |
-          python3 - << 'PY'
-          from pathlib import Path
-
-          p = Path("android/app/build.gradle")
-          s = p.read_text()
-
-          s = s.replace("signingConfig signingConfigs.release", "signingConfig signingConfigs.debug")
-
-          p.write_text(s)
-
-          print("---- signing check ----")
-          for i, line in enumerate(s.splitlines(), 1):
-              if "signingConfig" in line or "signingConfigs" in line:
-                  print(f"{i}: {line}")
-          PY
-
-      - name: Build Installable Release APK
+      - name: Build Release APK
         run: |
           cd android
           chmod +x gradlew
@@ -102,27 +84,63 @@ jobs:
           echo "=== APK files ==="
           find android/app/build/outputs -type f -name "*.apk" -print -exec ls -lh {} \;
 
-      - name: Prepare Installable APK
+      - name: Sign Unsigned Release APK With Debug Key
         run: |
           rm -rf release-apks
           mkdir -p release-apks
 
-          echo "=== Copying installable APKs ==="
-          find android/app/build/outputs -type f -name "*.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
+          APK_IN=$(find android/app/build/outputs -type f -name "*arm64*release-unsigned.apk" | head -1)
 
-          echo "=== Prepared APKs ==="
-          ls -lh release-apks/
+          if [ -z "$APK_IN" ]; then
+            APK_IN=$(find android/app/build/outputs -type f -name "*.apk" | head -1)
+          fi
 
-          count=$(find release-apks -type f -name "*.apk" | wc -l)
-          if [ "$count" -eq 0 ]; then
-            echo "No installable APK files copied."
+          if [ -z "$APK_IN" ]; then
+            echo "No APK found."
             exit 1
           fi
+
+          echo "Using APK: $APK_IN"
+
+          mkdir -p ~/.android
+
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair \
+              -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "Using build tools: $BUILD_TOOLS"
+
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$APK_IN" release-apks/app-arm64-v8a-release-aligned.apk
+
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks ~/.android/debug.keystore \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --out release-apks/app-arm64-v8a-release-debugsigned.apk \
+            release-apks/app-arm64-v8a-release-aligned.apk
+
+          "$BUILD_TOOLS/apksigner" verify --verbose release-apks/app-arm64-v8a-release-debugsigned.apk
+
+          rm -f release-apks/app-arm64-v8a-release-aligned.apk
+
+          echo "=== Final installable APK ==="
+          ls -lh release-apks/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: korndog-noutube-temp-installable-release-apk
+          name: korndog-noutube-temp-installable-apk
           path: release-apks/*.apk
           retention-days: 30
           if-no-files-found: error
@@ -134,17 +152,19 @@ jobs:
           tag_name: temp-installable-${{ github.run_id }}
           name: "KornDog Temp Installable Build #${{ github.run_number }}"
           body: |
-            KornDog temporary installable release APK.
+            🤘 KornDog temporary installable APK.
 
-            This is a RELEASE build with bundled JS, signed using the debug signing config.
+            This is a release build with bundled JS, manually signed using Android debug signing.
 
-            Use this until the new real release keystore is created.
+            **Install this file:** app-arm64-v8a-release-debugsigned.apk
 
             If Android says app not installed, uninstall the previous KornDog/NouTube app first.
+
+            `adb install -r app-arm64-v8a-release-debugsigned.apk`
           draft: false
-          prerelease: true
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Complete
-        run: echo "✅ Temp installable release APK ready"
+        run: echo "✅ Temp installable APK ready"
