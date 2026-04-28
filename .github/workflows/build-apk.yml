@@ -106,10 +106,18 @@ jobs:
         run: |
           rm -rf release-apks
           mkdir -p release-apks
-          find android/app/build/outputs -type f -name "*release*.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
+
+          echo "=== Copying installable APKs ==="
+          find android/app/build/outputs -type f -name "*.apk" ! -name "*unsigned*" -exec cp {} release-apks/ \;
+
           echo "=== Prepared APKs ==="
           ls -lh release-apks/
-          test -n "$(ls -A release-apks/*.apk 2>/dev/null)"
+
+          count=$(find release-apks -type f -name "*.apk" | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "No installable APK files copied."
+            exit 1
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
