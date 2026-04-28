@@ -92,161 +92,6 @@ tp-yt-paper-listbox { background: #2d1450 !important; }
 ytmusic-dialog { background: #2d1450 !important; }
 yt-button-renderer[button-next] a { color: #39ff14 !important; }
 .toggle-button { color: #39ff14 !important; }
-
-#korndog-cast-btn {
-  position:fixed;
-  top:12px;
-  right:110px;
-  z-index:99999;
-  width:36px;
-  height:36px;
-  border-radius:8px;
-  background:transparent;
-  border:none;
-  box-shadow:none;
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:22px;
-  line-height:1;
-  transition:transform 0.15s,opacity 0.15s;
-  opacity:0.85;
-}
-#korndog-cast-btn:active { transform:scale(0.92); }
-#korndog-cast-btn.connected {
-  background:#2d1450;
-  border-color:#39ff14;
-  box-shadow:0 0 20px #39ff14;
-}
-#korndog-cast-overlay {
-  display:none;
-  position:fixed;
-  top:0;
-  left:0;
-  width:100%;
-  height:100%;
-  background:rgba(26,10,46,0.97);
-  z-index:100000;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  padding:24px;
-  box-sizing:border-box;
-  overflow-y:auto;
-}
-#korndog-cast-overlay.show { display:flex; }
-#korndog-cast-overlay h2 {
-  color:#39ff14;
-  font-size:22px;
-  margin:0 0 20px 0;
-  font-family:sans-serif;
-  text-align:center;
-}
-#korndog-cast-overlay .kd-device {
-  background:#2d1450;
-  border:1px solid #3f1d6b;
-  border-radius:10px;
-  padding:16px 24px;
-  margin:6px 0;
-  width:100%;
-  max-width:320px;
-  color:#f0eaf8;
-  font-size:16px;
-  font-family:sans-serif;
-  cursor:pointer;
-  text-align:center;
-}
-#korndog-cast-overlay .kd-device:active {
-  background:#3f1d6b;
-  border-color:#39ff14;
-}
-#korndog-cast-overlay .kd-status {
-  color:#a090b8;
-  font-size:14px;
-  margin:16px 0;
-  font-family:sans-serif;
-  text-align:center;
-}
-#korndog-cast-overlay .kd-close {
-  color:#ff2d2d;
-  font-size:15px;
-  margin-top:24px;
-  cursor:pointer;
-  font-family:sans-serif;
-  padding:12px 24px;
-  border:1px solid #ff2d2d;
-  border-radius:8px;
-}
-#korndog-cast-overlay .kd-close:active { background:rgba(255,45,45,0.15); }
-#korndog-cast-overlay .kd-manual-btn {
-  color:#39ff14;
-  font-size:14px;
-  margin-top:16px;
-  cursor:pointer;
-  font-family:sans-serif;
-  padding:10px 20px;
-  border:1px solid #3f1d6b;
-  border-radius:8px;
-  background:#1e0e35;
-}
-#korndog-cast-overlay .kd-manual-btn:active { background:#3f1d6b; }
-#korndog-ip-input {
-  background:#1e0e35;
-  border:2px solid #3f1d6b;
-  border-radius:8px;
-  color:#f0eaf8;
-  font-size:18px;
-  padding:12px 16px;
-  width:100%;
-  max-width:280px;
-  text-align:center;
-  font-family:monospace;
-  margin:8px 0;
-  outline:none;
-  box-sizing:border-box;
-}
-#korndog-ip-input:focus { border-color:#39ff14; }
-#korndog-ip-input::placeholder { color:#6b5a80; }
-.kd-connect-btn {
-  background:#39ff14;
-  color:#1a0a2e;
-  font-size:16px;
-  font-weight:bold;
-  padding:12px 32px;
-  border:none;
-  border-radius:8px;
-  cursor:pointer;
-  font-family:sans-serif;
-  margin-top:8px;
-}
-.kd-connect-btn:active { background:#2bcc0f; }
-#korndog-cast-controls {
-  display:none;
-  position:fixed;
-  bottom:150px;
-  right:10px;
-  z-index:99999;
-  background:#2d1450;
-  border:1px solid #39ff14;
-  border-radius:12px;
-  padding:8px;
-  flex-direction:column;
-  gap:6px;
-  box-shadow:0 0 12px rgba(57,255,20,0.3);
-}
-#korndog-cast-controls.show { display:flex; }
-#korndog-cast-controls button {
-  width:40px;
-  height:40px;
-  border-radius:50%;
-  border:none;
-  background:#3f1d6b;
-  color:#39ff14;
-  font-size:18px;
-  cursor:pointer;
-}
-#korndog-cast-controls button:active { background:#5c2d91; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
 val KORNDOG_THEME_SCRIPT = """
@@ -262,92 +107,7 @@ val KORNDOG_THEME_SCRIPT = """
 
 val KORNDOG_CAST_SCRIPT = """
 (function() {
-  function initCastButton() {
-    if (!document.body) { setTimeout(initCastButton, 500); return; }
-    if (document.getElementById('korndog-cast-btn')) return;
-
-    var btn = document.createElement('div');
-    btn.id = 'korndog-cast-btn';
-    btn.textContent = '\uD83D\uDCFA';
-    document.body.appendChild(btn);
-
-    var overlay = document.createElement('div');
-    overlay.id = 'korndog-cast-overlay';
-    document.body.appendChild(overlay);
-
-    var h2 = document.createElement('h2');
-    h2.textContent = 'Cast / Open in YouTube Music';
-    overlay.appendChild(h2);
-
-    var status = document.createElement('div');
-    status.className = 'kd-status';
-    status.textContent = 'Premium mode: YouTube handles playback and casting.';
-    overlay.appendChild(status);
-
-    var ytBtn = document.createElement('div');
-    ytBtn.className = 'kd-device';
-    ytBtn.textContent = 'Open in YouTube Music / Native Cast';
-    overlay.appendChild(ytBtn);
-
-    var copyBtn = document.createElement('div');
-    copyBtn.className = 'kd-device';
-    copyBtn.textContent = 'Copy Current Link';
-    overlay.appendChild(copyBtn);
-
-    var closeBtn = document.createElement('div');
-    closeBtn.className = 'kd-close';
-    closeBtn.textContent = 'Close';
-    overlay.appendChild(closeBtn);
-
-    btn.addEventListener('click', function() {
-      overlay.classList.add('show');
-      status.textContent = 'Premium mode: YouTube handles playback and casting.';
-    });
-
-    ytBtn.addEventListener('click', function() {
-      status.textContent = 'Opening YouTube Music...';
-      if (window.NouTubeI && window.NouTubeI.openInYouTubeApp) {
-        window.NouTubeI.openInYouTubeApp();
-      } else if (window.NouTubeI && window.NouTubeI.discoverDevices) {
-        window.NouTubeI.discoverDevices();
-      }
-    });
-
-    copyBtn.addEventListener('click', function() {
-      if (window.NouTubeI && window.NouTubeI.copyCurrentUrl) {
-        window.NouTubeI.copyCurrentUrl();
-      }
-    });
-
-    closeBtn.addEventListener('click', function() {
-      overlay.classList.remove('show');
-    });
-
-    window.kdShowDevices = function(devicesJson) {
-      status.textContent = 'Premium mode active. Use the native YouTube Music cast button after opening.';
-    };
-
-    window.kdCastResult = function(success, deviceName) {
-      if (success) {
-        btn.classList.add('connected');
-        btn.textContent = '\uD83D\uDCFB';
-        overlay.classList.remove('show');
-      } else {
-        status.textContent = 'Use YouTube Music native casting in Premium mode.';
-      }
-    };
-
-    window.kdSetStatus = function(msg) {
-      status.textContent = msg;
-      if (!overlay.classList.contains('show')) {
-        overlay.classList.add('show');
-      }
-    };
-  }
-
-  setTimeout(initCastButton, 1000);
-
-  // Audio boost / normalization. Kept because it makes NouTube louder.
+  // Audio normalization — Joey's personal tuning.
   if (!window._kdAudioNormInit) {
     window._kdAudioNormInit = true;
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -396,7 +156,7 @@ val KORNDOG_CAST_SCRIPT = """
     }
   }
 
-  // Resume AudioContext on user touch without touching playback state.
+  // Resume AudioContext on user touch.
   if (!window._kdAudioResumeInit) {
     window._kdAudioResumeInit = true;
     document.addEventListener('touchstart', function() {
@@ -406,53 +166,119 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // Easter egg: triple-tap album art opens KornDog generator.
+  // 🥚 Easter egg: triple-tap album art (NOT fullscreen) opens KornDog generator.
   if (!window._kdEasterEggInit) {
     window._kdEasterEggInit = true;
+
     var _kdTapCount = 0;
     var _kdTapTimer = null;
+    var _kdLastTapTime = 0;
+
+    function kdText(selList) {
+      for (var i = 0; i < selList.length; i++) {
+        var el = document.querySelector(selList[i]);
+        if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
+      }
+      return '';
+    }
+
+    function kdFindThumb() {
+      var selectors = [
+        'ytmusic-player-bar img',
+        'ytmusic-player-page img',
+        'ytmusic-large-image-view img',
+        '#thumbnail img',
+        '.thumbnail img',
+        'img[src*="googleusercontent"]',
+        'img[src*="ytimg"]'
+      ];
+
+      for (var i = 0; i < selectors.length; i++) {
+        var el = document.querySelector(selectors[i]);
+        if (el && el.src) return el.src;
+      }
+
+      var bgEls = document.querySelectorAll(
+        'ytmusic-player-page, ytmusic-large-image-view, #song-image, #thumbnail, .image, .thumbnail'
+      );
+
+      for (var j = 0; j < bgEls.length; j++) {
+        var bg = window.getComputedStyle(bgEls[j]).backgroundImage;
+        if (bg && bg !== 'none') {
+          var match = bg.match(/url\(["'"'"']?(.*?)["'"'"']?\)/);
+          if (match && match[1]) return match[1];
+        }
+      }
+
+      var og = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
+      if (og && og.content) return og.content;
+
+      return '';
+    }
 
     function fireKornDogGenerator() {
       try {
-        var titleEl =
-          document.querySelector('.title.ytmusic-player-bar') ||
-          document.querySelector('ytmusic-player-bar .title') ||
-          document.querySelector('.content-info-wrapper .title');
+        var title = kdText([
+          'ytmusic-player-bar .title',
+          '.title.ytmusic-player-bar',
+          'ytmusic-player-page .title',
+          '.content-info-wrapper .title',
+          '#layout ytmusic-player-page .title'
+        ]);
 
-        var artistEl =
-          document.querySelector('.byline.ytmusic-player-bar') ||
-          document.querySelector('ytmusic-player-bar .subtitle') ||
-          document.querySelector('.content-info-wrapper .subtitle');
+        var artist = kdText([
+          'ytmusic-player-bar .subtitle',
+          '.byline.ytmusic-player-bar',
+          'ytmusic-player-page .subtitle',
+          '.content-info-wrapper .subtitle',
+          '#layout ytmusic-player-page .subtitle'
+        ]);
 
-        var thumbEl =
-          document.querySelector('ytmusic-player-bar img') ||
-          document.querySelector('#thumbnail img') ||
-          document.querySelector('.thumbnail img') ||
-          document.querySelector('ytmusic-large-image-view img') ||
-          document.querySelector('ytmusic-player img');
-
-        var title = titleEl ? titleEl.textContent.trim() : '';
-        var artist = artistEl ? artistEl.textContent.trim() : '';
-        var thumb = thumbEl ? thumbEl.src : '';
+        var thumb = kdFindThumb();
 
         var params = new URLSearchParams();
         if (artist) params.set('artist', artist);
         if (title) params.set('album', title);
         if (thumb) params.set('thumb', thumb);
-        params.set('from', 'premium-shell');
+        params.set('from', 'ghostkernel');
 
-        window.open('https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString(), '_blank');
+        window.open(
+          'https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString(),
+          '_blank'
+        );
       } catch(e) {}
     }
 
-    document.addEventListener('click', function(e) {
-      var art = e.target.closest(
-        'ytmusic-player-bar img, #thumbnail img, .thumbnail img, ytmusic-large-image-view img, ytmusic-player img'
+    function isAlbumArtTap(target) {
+      if (!target) return false;
+
+      // NOT fullscreen
+      if (document.fullscreenElement || document.webkitFullscreenElement) return false;
+
+      var hit = target.closest(
+        'ytmusic-player-bar, ytmusic-player-page, #thumbnail, .thumbnail, img'
       );
 
-      if (!art) return;
+      if (!hit) return false;
 
+      var rect = hit.getBoundingClientRect();
+      var bigEnough = rect.width > 40 && rect.height > 40;
+
+      return bigEnough;
+    }
+
+    document.addEventListener('pointerdown', function(e) {
+      if (!isAlbumArtTap(e.target)) return;
+
+      var now = Date.now();
+
+      if (now - _kdLastTapTime > 850) {
+        _kdTapCount = 0;
+      }
+
+      _kdLastTapTime = now;
       _kdTapCount++;
+
       clearTimeout(_kdTapTimer);
 
       if (_kdTapCount >= 3) {
@@ -467,7 +293,7 @@ val KORNDOG_CAST_SCRIPT = """
 
       _kdTapTimer = setTimeout(function() {
         _kdTapCount = 0;
-      }, 700);
+      }, 850);
     }, true);
   }
 })();
