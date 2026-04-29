@@ -46,222 +46,68 @@ val VIEW_HOSTS = arrayOf(
   "youtu.be"
 )
 
-val KORNDOG_THEME_CSS = """
+val KORNDOG_LIGHT_THEME_CSS = """
 :root {
-  --yt-spec-base-background: #1a0a2e !important;
-  --yt-spec-raised-background: #1e0e35 !important;
-  --yt-spec-menu-background: #2d1450 !important;
-  --yt-spec-brand-background-solid: #2d1450 !important;
-  --yt-spec-general-background-a: #1a0a2e !important;
-  --yt-spec-general-background-b: #110720 !important;
-  --yt-spec-general-background-c: #1e0e35 !important;
-  --yt-spec-static-brand-red: #39ff14 !important;
   --yt-spec-call-to-action: #39ff14 !important;
-  --yt-spec-text-primary: #f0eaf8 !important;
-  --yt-spec-text-secondary: #a090b8 !important;
-  --yt-spec-text-disabled: #6b5a80 !important;
   --yt-spec-icon-active-other: #39ff14 !important;
-  --yt-spec-icon-inactive: #8a7f99 !important;
-  --yt-spec-badge-chip-background: #3f1d6b !important;
   --yt-spec-brand-icon-active: #39ff14 !important;
-  --yt-spec-brand-button-background: #39ff14 !important;
-  --yt-spec-10-percent-layer: rgba(57,255,20,0.1) !important;
-  --yt-spec-outline: #3f1d6b !important;
-  --yt-spec-shadow: rgba(0,0,0,0.5) !important;
 }
-body { background: #1a0a2e !important; color: #f0eaf8 !important; }
-ytmusic-player-bar { background: #2d1450 !important; border-top: 2px solid #39ff14 !important; }
-tp-yt-paper-slider #sliderKnob { display: none !important; }
-tp-yt-paper-slider #sliderKnob #sliderKnobInner { display: none !important; }
-tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
-tp-yt-paper-slider #progressContainer { height: 3px !important; }
-ytmusic-pivot-bar-renderer { background: #1a0a2e !important; border-top: 1px solid #3f1d6b !important; }
-ytmusic-chip-cloud-chip-renderer { background: #3f1d6b !important; }
-ytmusic-chip-cloud-chip-renderer[selected] { background: #39ff14 !important; color: #1a0a2e !important; }
-ytmusic-tabs-header { background: #2d1450 !important; }
-#nav-bar-background { background: #2d1450 !important; }
-ytmusic-search-box { background: #1e0e35 !important; }
+ytmusic-player-bar { border-top: 2px solid #39ff14 !important; }
 .content-info-wrapper .title { color: #39ff14 !important; }
-.content-info-wrapper .subtitle { color: #a090b8 !important; }
-ytmusic-detail-header-renderer { background: #1a0a2e !important; }
-ytmusic-section-list-renderer { background: #1a0a2e !important; }
-ytmusic-responsive-list-item-renderer:hover { background: rgba(57,255,20,0.08) !important; }
-ytmusic-menu-popup-renderer { background: #2d1450 !important; }
-tp-yt-paper-item:hover { background: rgba(57,255,20,0.1) !important; }
-tp-yt-paper-listbox { background: #2d1450 !important; }
-ytmusic-dialog { background: #2d1450 !important; }
-yt-button-renderer[button-next] a { color: #39ff14 !important; }
-.toggle-button { color: #39ff14 !important; }
+tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
-val KORNDOG_THEME_SCRIPT = """
+val KORNDOG_LIGHT_THEME_SCRIPT = """
 (function() {
-  var existing = document.getElementById('korndog-theme');
+  var existing = document.getElementById('korndog-light-theme');
   if (existing) existing.remove();
   var s = document.createElement('style');
-  s.id = 'korndog-theme';
-  s.textContent = '${KORNDOG_THEME_CSS}';
+  s.id = 'korndog-light-theme';
+  s.textContent = '${KORNDOG_LIGHT_THEME_CSS}';
   document.head.appendChild(s);
 })();
 """.trimIndent()
 
-val KORNDOG_CAST_SCRIPT = """
+val KORNDOG_GENERATOR_SCRIPT = """
 (function() {
-  function initCastAndTVButtons() {
+  function initGeneratorButton() {
     if (!document.body) {
-      setTimeout(initCastAndTVButtons, 500);
+      setTimeout(initGeneratorButton, 500);
       return;
     }
 
-    if (document.getElementById('korndog-cast-tv-buttons')) return;
+    if (document.getElementById('korndog-generator-btn')) return;
 
     var container = document.createElement('div');
-    container.id = 'korndog-cast-tv-buttons';
-    container.style.cssText = 'position:fixed;right:12px;top:86px;z-index:999999;display:flex;flex-direction:column;gap:8px;';
+    container.id = 'korndog-gen-container';
+    container.style.cssText = 'position:fixed;right:12px;top:86px;z-index:999999;';
     document.body.appendChild(container);
 
-    var castBtn = document.createElement('button');
-    castBtn.id = 'korndog-cast-btn';
-    castBtn.textContent = '📡';
-    castBtn.setAttribute('aria-label', 'Cast to device');
-    castBtn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;';
+    var btn = document.createElement('button');
+    btn.id = 'korndog-generator-btn';
+    btn.textContent = '📺';
+    btn.setAttribute('aria-label', 'Open KornDog Generator');
+    btn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;';
 
-    castBtn.addEventListener('mouseenter', function() {
+    btn.addEventListener('mouseenter', function() {
       this.style.opacity = '1';
       this.style.transform = 'scale(1.08)';
     });
-    castBtn.addEventListener('mouseleave', function() {
+    btn.addEventListener('mouseleave', function() {
       this.style.opacity = '0.92';
       this.style.transform = 'scale(1)';
     });
 
-    container.appendChild(castBtn);
-
-    var tvBtn = document.createElement('button');
-    tvBtn.id = 'korndog-tv-generator-btn';
-    tvBtn.textContent = '📺';
-    tvBtn.setAttribute('aria-label', 'Open KornDog Generator');
-    tvBtn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;';
-
-    tvBtn.addEventListener('mouseenter', function() {
-      this.style.opacity = '1';
-      this.style.transform = 'scale(1.08)';
-    });
-    tvBtn.addEventListener('mouseleave', function() {
-      this.style.opacity = '0.92';
-      this.style.transform = 'scale(1)';
-    });
-
-    container.appendChild(tvBtn);
-
-    var overlay = document.createElement('div');
-    overlay.id = 'korndog-cast-tv-overlay';
-    overlay.style.cssText = 'display:none;position:fixed;inset:0;z-index:1000000;background:rgba(18,0,35,0.92);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:22px;box-sizing:border-box;font-family:sans-serif;';
-    document.body.appendChild(overlay);
-
-    var panel = document.createElement('div');
-    panel.style.cssText = 'width:100%;max-width:360px;border-radius:22px;background:rgba(45,20,80,0.96);border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 28px rgba(57,255,20,0.18);padding:22px;box-sizing:border-box;text-align:center;';
-    overlay.appendChild(panel);
-
-    var title = document.createElement('div');
-    title.id = 'korndog-cast-tv-title';
-    title.textContent = 'Cast / Share to KornDog';
-    title.style.cssText = 'color:#39ff14;font-size:22px;font-weight:800;margin-bottom:12px;';
-    panel.appendChild(title);
-
-    var status = document.createElement('div');
-    status.id = 'korndog-cast-tv-status';
-    status.textContent = 'Select an option below';
-    status.style.cssText = 'color:#c8b8dd;font-size:15px;line-height:1.35;margin-bottom:18px;';
-    panel.appendChild(status);
-
-    function makeAction(text) {
-      var el = document.createElement('button');
-      el.textContent = text;
-      el.style.cssText = 'width:100%;border:none;border-radius:14px;background:#35165f;color:#fff;font-size:17px;font-weight:700;padding:15px 14px;margin:7px 0;box-shadow:inset 0 0 0 1px rgba(57,255,20,0.16);cursor:pointer;transition:all 0.2s;';
-      el.addEventListener('mouseenter', function() {
-        this.style.background = '#4a2575';
-      });
-      el.addEventListener('mouseleave', function() {
-        this.style.background = '#35165f';
-      });
-      panel.appendChild(el);
-      return el;
-    }
-
-    var nativeBtn = makeAction('📡 Native Cast / YouTube Music');
-    var generatorBtn = makeAction('📺 Open KornDog Generator');
-    var copyBtn = makeAction('📋 Copy Current URL');
-
-    var closeBtn = document.createElement('button');
-    closeBtn.textContent = 'Close';
-    closeBtn.style.cssText = 'margin-top:16px;background:transparent;border:1px solid #ff4b6a;color:#ff4b6a;border-radius:14px;font-size:16px;font-weight:700;padding:12px 24px;cursor:pointer;transition:all 0.2s;';
-    closeBtn.addEventListener('mouseenter', function() {
-      this.style.background = 'rgba(255,75,106,0.1)';
-    });
-    closeBtn.addEventListener('mouseleave', function() {
-      this.style.background = 'transparent';
-    });
-    panel.appendChild(closeBtn);
-
-    castBtn.addEventListener('click', function(e) {
+    btn.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      overlay.style.display = 'flex';
-      title.textContent = '📡 Cast Device';
-      status.textContent = 'Send audio to YouTube Music or native cast device.';
+      kdOpenGenerator();
     });
 
-    tvBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      kdOpenGeneratorDirect();
-    });
-
-    nativeBtn.addEventListener('click', function() {
-      status.textContent = 'Opening YouTube Music...';
-      if (window.NouTubeI && window.NouTubeI.openInYouTubeApp) {
-        window.NouTubeI.openInYouTubeApp();
-      }
-      setTimeout(function() {
-        overlay.style.display = 'none';
-      }, 800);
-    });
-
-    generatorBtn.addEventListener('click', function() {
-      status.textContent = 'Opening KornDog Generator...';
-      setTimeout(kdOpenGeneratorDirect, 400);
-      setTimeout(function() {
-        overlay.style.display = 'none';
-      }, 800);
-    });
-
-    copyBtn.addEventListener('click', function() {
-      if (window.NouTubeI && window.NouTubeI.copyCurrentUrl) {
-        window.NouTubeI.copyCurrentUrl();
-        status.textContent = '✓ URL copied';
-      }
-    });
-
-    closeBtn.addEventListener('click', function() {
-      overlay.style.display = 'none';
-    });
-
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) overlay.style.display = 'none';
-    });
-
-    window.kdOpenOverlay = function() {
-      overlay.style.display = 'flex';
-    };
-
-    window.kdSetStatus = function(msg) {
-      status.textContent = msg;
-      overlay.style.display = 'flex';
-    };
+    container.appendChild(btn);
   }
 
-  function kdOpenGeneratorDirect() {
+  function kdOpenGenerator() {
     try {
       function kdText(selectors) {
         for (var i = 0; i < selectors.length; i++) {
@@ -277,24 +123,16 @@ val KORNDOG_CAST_SCRIPT = """
       function kdFindThumb() {
         var imgs = Array.from(document.querySelectorAll('img')).filter(function(img) {
           var src = img.src || img.getAttribute('src') || '';
-          var alt = img.alt || '';
-          return (src.includes('lh3.googleusercontent.com') || src.includes('ytimg') || alt.includes('album') || alt.includes('cover')) && img.width >= 80 && img.height >= 80;
+          return (src.includes('lh3.googleusercontent.com') || src.includes('ytimg')) && img.width >= 80 && img.height >= 80;
         }).sort(function(a, b) {
           return (b.width * b.height) - (a.width * a.height);
         });
 
-        if (imgs.length > 0) {
-          console.log('[KornDog] Found album art:', imgs[0].src);
-          return imgs[0].src;
-        }
+        if (imgs.length > 0) return imgs[0].src;
 
-        var og = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
-        if (og && og.content) {
-          console.log('[KornDog] Found og:image:', og.content);
-          return og.content;
-        }
+        var og = document.querySelector('meta[property="og:image"]');
+        if (og && og.content) return og.content;
 
-        console.log('[KornDog] No album art found');
         return '';
       }
 
@@ -302,25 +140,19 @@ val KORNDOG_CAST_SCRIPT = """
         '.content-info-wrapper .title yt-formatted-string',
         '.content-info-wrapper yt-formatted-string:first-of-type',
         '[role="heading"]',
-        'ytmusic-player-page .title',
-        '.yt-simple-endpoint.style-scope.ytmusic-responsive-list-item-renderer',
-        '[data-title]',
-        'h2',
-        'h1'
+        'h2'
       ]);
 
       var artist = kdText([
         '.content-info-wrapper .subtitle',
         '.content-info-wrapper yt-formatted-string:nth-of-type(2)',
         '.byline',
-        '.byline.style-scope.ytmusic-player-bar',
-        '[data-artist]',
         'h3'
       ]);
 
       var thumb = kdFindThumb();
 
-      console.log('[KornDog] Captured - Title:', title, 'Artist:', artist);
+      console.log('[KornDog] Generator - Title:', title, 'Artist:', artist);
 
       var params = new URLSearchParams();
       if (artist) params.set('artist', artist);
@@ -334,10 +166,10 @@ val KORNDOG_CAST_SCRIPT = """
     }
   }
 
-  setTimeout(initCastAndTVButtons, 1000);
+  setTimeout(initGeneratorButton, 1000);
 
-  if (!window._kdAudioNormInit) {
-    window._kdAudioNormInit = true;
+  if (!window._kdAudioBoostInit) {
+    window._kdAudioBoostInit = true;
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (AudioCtx) {
       var ctx = new AudioCtx();
@@ -373,11 +205,11 @@ val KORNDOG_CAST_SCRIPT = """
         });
       }
 
-      var normObserver = new MutationObserver(function() {
+      var boostObserver = new MutationObserver(function() {
         hookAll();
       });
 
-      normObserver.observe(document.documentElement, { childList: true, subtree: true });
+      boostObserver.observe(document.documentElement, { childList: true, subtree: true });
       hookAll();
       setTimeout(hookAll, 2000);
       setTimeout(hookAll, 5000);
@@ -391,34 +223,6 @@ val KORNDOG_CAST_SCRIPT = """
         window._kdAudioCtx.resume();
       }
     }, { passive: true });
-  }
-
-  if (!window._kdAutoPlayInit) {
-    window._kdAutoPlayInit = true;
-    var playbackAttempted = false;
-
-    document.addEventListener('canplay', function(e) {
-      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
-        if (!playbackAttempted) {
-          console.log('[KornDog] ▶️ Auto-playing on canplay');
-          e.target.play().then(function() {
-            playbackAttempted = true;
-            if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
-              window._kdAudioCtx.resume().catch(function(){});
-            }
-          }).catch(function(err) {
-            console.log('[KornDog] Auto-play blocked:', err);
-          });
-        }
-      }
-    }, true);
-
-    document.addEventListener('loadstart', function(e) {
-      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
-        playbackAttempted = false;
-        console.log('[KornDog] 🔄 New track loading');
-      }
-    }, true);
   }
 
   if (!window._kdLightWatchdogInit) {
@@ -468,9 +272,8 @@ val KORNDOG_CAST_SCRIPT = """
       kdLastTime = nowTime;
 
       if (kdStallTicks >= 3) {
-        console.log('[KornDog] 🔧 Playback stall detected, nudging play');
+        console.log('[KornDog] Stall detected, nudging');
         kdStallTicks = 0;
-
         try {
           media.play().catch(function(){});
           if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
@@ -611,12 +414,12 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-          evaluateJavascript(KORNDOG_THEME_SCRIPT, null)
+          evaluateJavascript(KORNDOG_LIGHT_THEME_SCRIPT, null)
           evaluateJavascript(scriptOnStart, null)
         }
 
         override fun onPageFinished(view: WebView, url: String) {
-          evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
+          evaluateJavascript(KORNDOG_GENERATOR_SCRIPT, null)
         }
 
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
