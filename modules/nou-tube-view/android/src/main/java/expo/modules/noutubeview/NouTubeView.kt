@@ -380,20 +380,33 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // KEEP-ALIVE: Resume AudioContext and WebView playback every 30 seconds
+  // KEEP-ALIVE: Keep AudioContext alive, but do NOT force-play if user paused
   if (!window._kdKeepAliveInit) {
     window._kdKeepAliveInit = true;
+
+    window._kdUserPaused = false;
+
+    document.addEventListener('pause', function(e) {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        window._kdUserPaused = true;
+      }
+    }, true);
+
+    document.addEventListener('play', function(e) {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        window._kdUserPaused = false;
+      }
+    }, true);
+
     setInterval(function() {
       try {
         if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
           window._kdAudioCtx.resume();
         }
-        var videos = document.querySelectorAll('video, audio');
-        videos.forEach(function(v) {
-          if (v && v.paused && !v._kdIgnoreResume) {
-            v.play().catch(function() {});
-          }
-        });
+
+        // Important:
+        // Do NOT auto-play paused media. That was causing the 5-second restart.
+        // Background keep-alive should only keep the audio engine warm.
       } catch(e) {}
     }, 30000);
   }
