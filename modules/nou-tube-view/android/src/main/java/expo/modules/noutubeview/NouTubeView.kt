@@ -47,36 +47,39 @@ val VIEW_HOSTS = arrayOf(
 )
 
 val KORNDOG_LIGHT_THEME_CSS = """
-:root {
-  --yt-spec-base-background: #160026 !important;
-  --yt-spec-raised-background: #22003a !important;
-  --yt-spec-menu-background: #2d1450 !important;
-  --yt-spec-brand-background-solid: #22003a !important;
-  --yt-spec-general-background-a: #160026 !important;
-  --yt-spec-general-background-b: #0d0018 !important;
-  --yt-spec-general-background-c: #22003a !important;
-  --yt-spec-call-to-action: #39ff14 !important;
-  --yt-spec-static-brand-red: #39ff14 !important;
-  --yt-spec-icon-active-other: #39ff14 !important;
-  --yt-spec-brand-icon-active: #39ff14 !important;
-  --yt-spec-text-primary: #f4edff !important;
-  --yt-spec-text-secondary: #bba7d9 !important;
-  --yt-spec-badge-chip-background: #35165f !important;
-}
-body, ytmusic-app, ytmusic-browse-response, ytmusic-section-list-renderer { background: #160026 !important; }
-ytmusic-player-bar { background: #2d1450 !important; border-top: 2px solid #39ff14 !important; }
-.content-info-wrapper .title, ytmusic-player-page .title, ytmusic-player-bar .title { color: #39ff14 !important; }
+html { background: #160026 !important; }
+body { background: #160026 !important; }
+ytmusic-app { background: #160026 !important; }
+#content { background: #160026 !important; }
+.music-container { background: #160026 !important; }
+.content { background: #160026 !important; }
+ytmusic-player-bar { background: #2d1450 !important; border-top: 3px solid #39ff14 !important; }
+.progress { background: #39ff14 !important; }
+.title { color: #39ff14 !important; }
+.subtitle { color: #bba7d9 !important; }
+yt-formatted-string { color: #f4edff !important; }
 tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
+* { background-color: #160026 !important; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
 val KORNDOG_LIGHT_THEME_SCRIPT = """
 (function() {
-  var existing = document.getElementById('korndog-light-theme');
-  if (existing) existing.remove();
-  var s = document.createElement('style');
-  s.id = 'korndog-light-theme';
-  s.textContent = '${KORNDOG_LIGHT_THEME_CSS}';
-  document.head.appendChild(s);
+  try {
+    var existing = document.getElementById('korndog-light-theme');
+    if (existing) existing.remove();
+    
+    var s = document.createElement('style');
+    s.id = 'korndog-light-theme';
+    s.textContent = '${KORNDOG_LIGHT_THEME_CSS}';
+    document.head.appendChild(s);
+    
+    document.documentElement.style.background = '#160026';
+    document.body.style.background = '#160026';
+    
+    console.log('[KornDog] Theme injected');
+  } catch(e) {
+    console.error('[KornDog] Theme error:', e);
+  }
 })();
 """.trimIndent()
 
@@ -134,69 +137,65 @@ val KORNDOG_GENERATOR_SCRIPT = """
           .trim();
       }
 
-      function grabText(selectors) {
-        for (var i = 0; i < selectors.length; i++) {
-          var nodes = document.querySelectorAll(selectors[i]);
-          for (var j = 0; j < nodes.length; j++) {
-            var txt = cleanText(nodes[j].innerText || nodes[j].textContent);
-            if (txt && txt.length > 1 && txt.length < 140) return txt;
+      function walkDOM(node, depth) {
+        if (!node || depth > 8) return '';
+        
+        var text = '';
+        if (node.nodeType === 3) {
+          text = cleanText(node.textContent);
+        } else if (node.nodeType === 1) {
+          for (var i = 0; i < node.childNodes.length; i++) {
+            text = walkDOM(node.childNodes[i], depth + 1);
+            if (text && text.length > 1 && text.length < 140) return text;
           }
         }
-        return '';
+        return text;
       }
 
-      function grabTitle() {
-        return grabText([
-          'ytmusic-player-page .title',
-          'ytmusic-player-page yt-formatted-string.title',
-          '.content-info-wrapper .title',
-          'ytmusic-player-bar .title',
-          '.middle-controls .title',
-          '[class*="title"]'
-        ]);
+      var title = '';
+      var artist = '';
+      var thumb = '';
+
+      // Get title - walk page header area
+      var titleEls = document.querySelectorAll('h1, h2, [role="heading"]');
+      for (var ti = 0; ti < titleEls.length; ti++) {
+        var t = cleanText(titleEls[ti].innerText || titleEls[ti].textContent);
+        if (t && t.length > 2 && t.length < 140 && !title) {
+          title = t;
+          break;
+        }
       }
 
-      function grabArtist() {
-        var raw = grabText([
-          'ytmusic-player-page .subtitle',
-          'ytmusic-player-page .byline',
-          '.content-info-wrapper .subtitle',
-          'ytmusic-player-bar .subtitle',
-          'ytmusic-player-bar .byline',
-          '[class*="subtitle"]'
-        ]);
-
-        if (raw.indexOf(' • ') > -1) raw = raw.split(' • ')[0];
-        return cleanText(raw);
+      // Get artist - look for subtitle/byline
+      var artistEls = document.querySelectorAll('h3, .subtitle, [class*="byline"], [class*="artist"]');
+      for (var ai = 0; ai < artistEls.length; ai++) {
+        var a = cleanText(artistEls[ai].innerText || artistEls[ai].textContent);
+        if (a && a.indexOf(' • ') > -1) a = a.split(' • ')[0];
+        if (a && a.length > 1 && a.length < 140 && !artist) {
+          artist = a;
+          break;
+        }
       }
 
-      function grabThumb() {
-        var imgs = Array.from(document.querySelectorAll('img'))
-          .filter(function(img) {
-            var src = img.currentSrc || img.src || img.getAttribute('src') || '';
-            var r = img.getBoundingClientRect();
-            return src &&
-              (src.indexOf('ytimg') !== -1 || src.indexOf('googleusercontent') !== -1) &&
-              r.width >= 70 &&
-              r.height >= 70;
-          })
-          .sort(function(a, b) {
-            var ar = a.getBoundingClientRect();
-            var br = b.getBoundingClientRect();
-            return (br.width * br.height) - (ar.width * ar.height);
-          });
+      // Get thumbnail - find largest image
+      var imgs = Array.from(document.querySelectorAll('img'))
+        .filter(function(img) {
+          var src = img.currentSrc || img.src || '';
+          var r = img.getBoundingClientRect();
+          return (src.indexOf('ytimg') > -1 || src.indexOf('googleusercontent') > -1) && r.width >= 70 && r.height >= 70;
+        })
+        .sort(function(a, b) {
+          var ar = a.getBoundingClientRect();
+          var br = b.getBoundingClientRect();
+          return (br.width * br.height) - (ar.width * ar.height);
+        });
 
-        if (imgs.length) return imgs[0].currentSrc || imgs[0].src;
+      if (imgs.length) thumb = imgs[0].currentSrc || imgs[0].src;
 
+      if (!thumb) {
         var meta = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
-        if (meta && meta.content) return meta.content;
-
-        return '';
+        if (meta && meta.content) thumb = meta.content;
       }
-
-      var title = grabTitle();
-      var artist = grabArtist();
-      var thumb = grabThumb();
 
       var params = new URLSearchParams();
       params.set('from', 'ghostkernel');
