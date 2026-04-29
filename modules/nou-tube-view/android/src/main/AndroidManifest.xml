@@ -2,16 +2,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- FOREGROUND SERVICE PERMISSIONS -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- AUDIO & MEDIA PERMISSIONS -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- NETWORK PERMISSIONS -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- AUDIO & RECORDING PERMISSIONS (if needed for YouTube Music) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application>
+
+        <!-- NOUTUBE SERVICE - Foreground Media Playback -->
         <service
             android:name=".NouService"
             android:exported="false"
@@ -21,6 +34,7 @@
             </intent-filter>
         </service>
 
+        <!-- MEDIA BUTTON RECEIVER - Handles hardware media buttons and headphone controls -->
         <receiver
             android:name="androidx.media.session.MediaButtonReceiver"
             android:exported="true">
@@ -29,8 +43,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- GOOGLE CAST FRAMEWORK CONFIGURATION -->
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="expo.modules.noutubeview.NouCastOptionsProvider" />
+
+        <!-- YOUR ACTIVITIES AND OTHER COMPONENTS GO HERE -->
+
     </application>
+
 </manifest>
