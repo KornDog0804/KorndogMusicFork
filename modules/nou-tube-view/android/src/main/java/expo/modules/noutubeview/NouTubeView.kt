@@ -479,55 +479,19 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // ── PREMIUM-LIKE BUFFER STRATEGY WITH AUTO-PLAY FIX ─────────────────────
-  if (!window._kdPremiumBufferInit) {
-    window._kdPremiumBufferInit = true;
-
-    var currentTime = 0;
-    var duration = 0;
-    var bufferedEnd = 0;
-    var bufferThreshold = 10;
-    var isOnline = navigator.onLine;
+  // ── AUTO-PLAY ON FIRST SONG ────────────────────────────────────────────
+  if (!window._kdAutoPlayInit) {
+    window._kdAutoPlayInit = true;
     var playbackAttempted = false;
-    var forcePauseAllowed = false;
-    var currentTrackId = '';
 
-    function updateBufferState() {
-      try {
-        var video = document.querySelector('video');
-        if (!video) return;
-        currentTime = video.currentTime || 0;
-        duration = video.duration || 0;
-        if (video.buffered && video.buffered.length > 0) {
-          bufferedEnd = video.buffered.end(video.buffered.length - 1);
-        }
-      } catch (e) {}
-    }
-
-    function getBufferMargin() {
-      return bufferedEnd - currentTime;
-    }
-
-    function hasEnoughBuffer() {
-      return getBufferMargin() >= bufferThreshold;
-    }
-
-    function getCurrentTrackId() {
-      var el = document.querySelector('ytmusic-player-bar .title, .content-info-wrapper .title');
-      if (el) return el.textContent;
-      return '';
-    }
-
-    // AUTO-PLAY on canplay (CRITICAL FIX FOR FIRST SONG)
     document.addEventListener('canplay', function(e) {
       if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
         if (!playbackAttempted) {
-          console.log('[KornDog] canplay → auto-playing');
+          console.log('[KornDog] ▶️ Auto-playing on canplay');
           e.target.play().then(function() {
             playbackAttempted = true;
-            console.log('[KornDog] ▶️ Auto-play succeeded');
             if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
-              window._kdAudioCtx.resume();
+              window._kdAudioCtx.resume().catch(function(){});
             }
           }).catch(function(err) {
             console.log('[KornDog] Auto-play blocked:', err);
@@ -536,106 +500,84 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, true);
 
-    // RESET on loadstart (track change)
+    // Reset on track change
     document.addEventListener('loadstart', function(e) {
       if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
-        var newTrackId = getCurrentTrackId();
-        if (newTrackId && newTrackId !== currentTrackId) {
-          console.log('[KornDog] 🔄 Track transition: ' + newTrackId);
-          currentTrackId = newTrackId;
-          playbackAttempted = false;
-          forcePauseAllowed = false;
-        }
-      }
-    }, true);
-
-    // RESET on emptied (between tracks)
-    document.addEventListener('emptied', function(e) {
-      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
-        console.log('[KornDog] 🔄 Media emptied, resetting for next track');
         playbackAttempted = false;
-        forcePauseAllowed = false;
+        console.log('[KornDog] 🔄 New track loading');
       }
     }, true);
+  }
 
-    // Allow manual PLAY
-    document.addEventListener('play', function(e) {
-      playbackAttempted = true;
-      console.log('[KornDog] ▶️ Playback started');
-      if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
-        window._kdAudioCtx.resume();
-      }
-    }, true);
+  // ── LIGHT PLAYBACK WATCHDOG: fixes random stalls without fighting controls ──
+  if (!window._kdLightWatchdogInit) {
+    window._kdLightWatchdogInit = true;
 
-    // Smart PAUSE blocking
+    var kdLastTime = 0;
+    var kdStallTicks = 0;
+    var kdUserPaused = false;
+
     document.addEventListener('pause', function(e) {
-      if (!playbackAttempted) return;
-      updateBufferState();
-      
-      var hasBuffer = hasEnoughBuffer();
-      var shouldPreventPause = !isOnline && hasBuffer && !forcePauseAllowed;
-
-      if (shouldPreventPause) {
-        console.log('[KornDog] 🔒 Buffer safe, blocking pause');
-        e.preventDefault();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        var video = e.target;
-        if (video && video.paused) {
-          video.play().catch(function() {});
-        }
-        return false;
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        kdUserPaused = true;
+        setTimeout(function() {
+          kdUserPaused = false;
+        }, 4000);
       }
     }, true);
 
-    // Online/offline handlers
-    window.addEventListener('online', function() {
-      isOnline = true;
-      var video = document.querySelector('video');
-      if (video && video.paused && playbackAttempted) {
-        video.play().catch(function() {});
-      }
-    });
-
-    window.addEventListener('offline', function() {
-      isOnline = false;
-      updateBufferState();
-      if (hasEnoughBuffer() && playbackAttempted) {
-        var video = document.querySelector('video');
-        if (video && video.paused) {
-          video.play().catch(function() {});
+    document.addEventListener('play', function(e) {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        kdUserPaused = false;
+        if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
+          window._kdAudioCtx.resume().catch(function(){});
         }
       }
-    });
+    }, true);
 
-    // Monitor critical buffer
     setInterval(function() {
-      if (!playbackAttempted) return;
-      updateBufferState();
-      if (!isOnline && getBufferMargin() < 3) {
-        forcePauseAllowed = true;
-        setTimeout(function() { forcePauseAllowed = false; }, 1000);
+      var media = document.querySelector('video, audio');
+      if (!media) return;
+
+      if (media.paused || media.ended || kdUserPaused) {
+        kdLastTime = media.currentTime || 0;
+        kdStallTicks = 0;
+        return;
       }
-    }, 500);
 
-    // Keep audio context alive
-    var AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (AudioCtx && !window._kdAudioCtxResilience) {
-      window._kdAudioCtxResilience = true;
-      var ctx = new AudioCtx();
-      document.addEventListener('play', function() {
-        if (ctx.state === 'suspended') ctx.resume().catch(function() {});
-      }, true);
-    }
+      var nowTime = media.currentTime || 0;
+      var stuck = Math.abs(nowTime - kdLastTime) < 0.05;
 
-    // Prevent screen lock
-    if (window.NouTubeI && window.NouTubeI.keepScreenOn) {
-      document.addEventListener('play', function() {
-        window.NouTubeI.keepScreenOn(true);
-      }, true);
-      document.addEventListener('pause', function() {
-        window.NouTubeI.keepScreenOn(false);
-      }, true);
-    }
+      if (stuck) {
+        kdStallTicks++;
+      } else {
+        kdStallTicks = 0;
+      }
+
+      kdLastTime = nowTime;
+
+      if (kdStallTicks >= 3) {
+        console.log('[KornDog] 🔧 Playback stall detected, nudging play');
+        kdStallTicks = 0;
+
+        try {
+          media.play().catch(function(){});
+          if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
+            window._kdAudioCtx.resume().catch(function(){});
+          }
+        } catch(e) {}
+      }
+    }, 2500);
+  }
+
+  // Prevent screen lock during playback
+  if (window.NouTubeI && window.NouTubeI.keepScreenOn) {
+    document.addEventListener('play', function() {
+      window.NouTubeI.keepScreenOn(true);
+    }, true);
+    document.addEventListener('pause', function() {
+      window.NouTubeI.keepScreenOn(false);
+    }, true);
   }
 })();
 """.trimIndent()
