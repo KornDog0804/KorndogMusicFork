@@ -48,12 +48,24 @@ val VIEW_HOSTS = arrayOf(
 
 val KORNDOG_LIGHT_THEME_CSS = """
 :root {
+  --yt-spec-base-background: #160026 !important;
+  --yt-spec-raised-background: #22003a !important;
+  --yt-spec-menu-background: #2d1450 !important;
+  --yt-spec-brand-background-solid: #22003a !important;
+  --yt-spec-general-background-a: #160026 !important;
+  --yt-spec-general-background-b: #0d0018 !important;
+  --yt-spec-general-background-c: #22003a !important;
   --yt-spec-call-to-action: #39ff14 !important;
+  --yt-spec-static-brand-red: #39ff14 !important;
   --yt-spec-icon-active-other: #39ff14 !important;
   --yt-spec-brand-icon-active: #39ff14 !important;
+  --yt-spec-text-primary: #f4edff !important;
+  --yt-spec-text-secondary: #bba7d9 !important;
+  --yt-spec-badge-chip-background: #35165f !important;
 }
-ytmusic-player-bar { border-top: 2px solid #39ff14 !important; }
-.content-info-wrapper .title { color: #39ff14 !important; }
+body, ytmusic-app, ytmusic-browse-response, ytmusic-section-list-renderer { background: #160026 !important; }
+ytmusic-player-bar { background: #2d1450 !important; border-top: 2px solid #39ff14 !important; }
+.content-info-wrapper .title, ytmusic-player-page .title, ytmusic-player-bar .title { color: #39ff14 !important; }
 tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
@@ -80,14 +92,19 @@ val KORNDOG_GENERATOR_SCRIPT = """
 
     var container = document.createElement('div');
     container.id = 'korndog-gen-container';
-    container.style.cssText = 'position:fixed;right:12px;top:86px;z-index:999999;';
+    container.style.cssText =
+      'position:fixed;' +
+      'right:12px;' +
+      'top:132px;' +
+      'z-index:999999;' +
+      'pointer-events:auto;';
     document.body.appendChild(container);
 
     var btn = document.createElement('button');
     btn.id = 'korndog-generator-btn';
     btn.textContent = '📺';
     btn.setAttribute('aria-label', 'Open KornDog Generator');
-    btn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;';
+    btn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;touch-action:manipulation;pointer-events:auto;';
 
     btn.addEventListener('mouseenter', function() {
       this.style.opacity = '1';
@@ -109,58 +126,91 @@ val KORNDOG_GENERATOR_SCRIPT = """
 
   function kdOpenGenerator() {
     try {
-      function kdText(selectors) {
+      function cleanText(t) {
+        return (t || '')
+          .replace(/\s+/g, ' ')
+          .replace('Explicit', '')
+          .replace('Album', '')
+          .trim();
+      }
+
+      function grabText(selectors) {
         for (var i = 0; i < selectors.length; i++) {
-          var el = document.querySelector(selectors[i]);
-          if (el && el.textContent && el.textContent.trim()) {
-            var text = el.textContent.trim();
-            if (text.length > 0 && text.length < 200) return text;
+          var nodes = document.querySelectorAll(selectors[i]);
+          for (var j = 0; j < nodes.length; j++) {
+            var txt = cleanText(nodes[j].innerText || nodes[j].textContent);
+            if (txt && txt.length > 1 && txt.length < 140) return txt;
           }
         }
         return '';
       }
 
-      function kdFindThumb() {
-        var imgs = Array.from(document.querySelectorAll('img')).filter(function(img) {
-          var src = img.src || img.getAttribute('src') || '';
-          return (src.includes('lh3.googleusercontent.com') || src.includes('ytimg')) && img.width >= 80 && img.height >= 80;
-        }).sort(function(a, b) {
-          return (b.width * b.height) - (a.width * a.height);
-        });
+      function grabTitle() {
+        return grabText([
+          'ytmusic-player-page .title',
+          'ytmusic-player-page yt-formatted-string.title',
+          '.content-info-wrapper .title',
+          'ytmusic-player-bar .title',
+          '.middle-controls .title',
+          '[class*="title"]'
+        ]);
+      }
 
-        if (imgs.length > 0) return imgs[0].src;
+      function grabArtist() {
+        var raw = grabText([
+          'ytmusic-player-page .subtitle',
+          'ytmusic-player-page .byline',
+          '.content-info-wrapper .subtitle',
+          'ytmusic-player-bar .subtitle',
+          'ytmusic-player-bar .byline',
+          '[class*="subtitle"]'
+        ]);
 
-        var og = document.querySelector('meta[property="og:image"]');
-        if (og && og.content) return og.content;
+        if (raw.indexOf(' • ') > -1) raw = raw.split(' • ')[0];
+        return cleanText(raw);
+      }
+
+      function grabThumb() {
+        var imgs = Array.from(document.querySelectorAll('img'))
+          .filter(function(img) {
+            var src = img.currentSrc || img.src || img.getAttribute('src') || '';
+            var r = img.getBoundingClientRect();
+            return src &&
+              (src.indexOf('ytimg') !== -1 || src.indexOf('googleusercontent') !== -1) &&
+              r.width >= 70 &&
+              r.height >= 70;
+          })
+          .sort(function(a, b) {
+            var ar = a.getBoundingClientRect();
+            var br = b.getBoundingClientRect();
+            return (br.width * br.height) - (ar.width * ar.height);
+          });
+
+        if (imgs.length) return imgs[0].currentSrc || imgs[0].src;
+
+        var meta = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
+        if (meta && meta.content) return meta.content;
 
         return '';
       }
 
-      var title = kdText([
-        '.content-info-wrapper .title yt-formatted-string',
-        '.content-info-wrapper yt-formatted-string:first-of-type',
-        '[role="heading"]',
-        'h2'
-      ]);
-
-      var artist = kdText([
-        '.content-info-wrapper .subtitle',
-        '.content-info-wrapper yt-formatted-string:nth-of-type(2)',
-        '.byline',
-        'h3'
-      ]);
-
-      var thumb = kdFindThumb();
-
-      console.log('[KornDog] Generator - Title:', title, 'Artist:', artist);
+      var title = grabTitle();
+      var artist = grabArtist();
+      var thumb = grabThumb();
 
       var params = new URLSearchParams();
+      params.set('from', 'ghostkernel');
+
       if (artist) params.set('artist', artist);
       if (title) params.set('album', title);
       if (thumb) params.set('thumb', thumb);
-      params.set('from', 'ghostkernel');
 
-      window.location.href = 'https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString();
+      params.set('sourceUrl', window.location.href);
+
+      window.location.href =
+        'https://korndogrecords.com/korndog-spinning-generator.html?' +
+        params.toString();
+
     } catch(e) {
       console.error('[KornDog] Generator error:', e);
     }
@@ -272,8 +322,6 @@ val KORNDOG_GENERATOR_SCRIPT = """
       kdLastTime = nowTime;
 
       if (kdStallTicks >= 3) {
-        console.log('[KornDog] Stall detected, nudging');
-        kdStallTicks = 0;
         try {
           media.play().catch(function(){});
           if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
