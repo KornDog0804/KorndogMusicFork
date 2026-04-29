@@ -107,25 +107,34 @@ val KORNDOG_THEME_SCRIPT = """
 
 val KORNDOG_CAST_SCRIPT = """
 (function() {
-  // Floating Premium Cast Button
-  function initPremiumCastButton() {
+  // Floating Cast + TV Generator Button UI
+  function initCastAndTVButtons() {
     if (!document.body) {
-      setTimeout(initPremiumCastButton, 500);
+      setTimeout(initCastAndTVButtons, 500);
       return;
     }
 
-    if (document.getElementById('korndog-premium-cast-btn')) return;
+    if (document.getElementById('korndog-cast-tv-buttons')) return;
 
-    var btn = document.createElement('button');
-    btn.id = 'korndog-premium-cast-btn';
-    btn.textContent = '\uD83D\uDCFA';
-    btn.setAttribute('aria-label', 'Open YouTube Music cast');
-
-    btn.style.cssText =
+    // Container for both buttons
+    var container = document.createElement('div');
+    container.id = 'korndog-cast-tv-buttons';
+    container.style.cssText =
       'position:fixed;' +
       'right:12px;' +
       'top:86px;' +
       'z-index:999999;' +
+      'display:flex;' +
+      'flex-direction:column;' +
+      'gap:8px;';
+    document.body.appendChild(container);
+
+    // Cast Button
+    var castBtn = document.createElement('button');
+    castBtn.id = 'korndog-cast-btn';
+    castBtn.textContent = '📡';
+    castBtn.setAttribute('aria-label', 'Cast to device');
+    castBtn.style.cssText =
       'width:42px;' +
       'height:42px;' +
       'border-radius:14px;' +
@@ -141,12 +150,60 @@ val KORNDOG_CAST_SCRIPT = """
       'backdrop-filter:blur(10px);' +
       'opacity:0.92;' +
       'padding:0;' +
-      'margin:0;';
+      'margin:0;' +
+      'cursor:pointer;' +
+      'transition:all 0.2s;';
 
-    document.body.appendChild(btn);
+    castBtn.addEventListener('mouseenter', function() {
+      this.style.opacity = '1';
+      this.style.transform = 'scale(1.08)';
+    });
+    castBtn.addEventListener('mouseleave', function() {
+      this.style.opacity = '0.92';
+      this.style.transform = 'scale(1)';
+    });
 
+    container.appendChild(castBtn);
+
+    // TV/Generator Button
+    var tvBtn = document.createElement('button');
+    tvBtn.id = 'korndog-tv-generator-btn';
+    tvBtn.textContent = '📺';
+    tvBtn.setAttribute('aria-label', 'Open KornDog Generator');
+    tvBtn.style.cssText =
+      'width:42px;' +
+      'height:42px;' +
+      'border-radius:14px;' +
+      'border:1px solid rgba(57,255,20,0.45);' +
+      'background:rgba(45,20,80,0.72);' +
+      'color:#39ff14;' +
+      'font-size:22px;' +
+      'line-height:1;' +
+      'display:flex;' +
+      'align-items:center;' +
+      'justify-content:center;' +
+      'box-shadow:0 0 14px rgba(57,255,20,0.22);' +
+      'backdrop-filter:blur(10px);' +
+      'opacity:0.92;' +
+      'padding:0;' +
+      'margin:0;' +
+      'cursor:pointer;' +
+      'transition:all 0.2s;';
+
+    tvBtn.addEventListener('mouseenter', function() {
+      this.style.opacity = '1';
+      this.style.transform = 'scale(1.08)';
+    });
+    tvBtn.addEventListener('mouseleave', function() {
+      this.style.opacity = '0.92';
+      this.style.transform = 'scale(1)';
+    });
+
+    container.appendChild(tvBtn);
+
+    // Overlay panel for cast/TV options
     var overlay = document.createElement('div');
-    overlay.id = 'korndog-premium-cast-overlay';
+    overlay.id = 'korndog-cast-tv-overlay';
     overlay.style.cssText =
       'display:none;' +
       'position:fixed;' +
@@ -175,7 +232,8 @@ val KORNDOG_CAST_SCRIPT = """
     overlay.appendChild(panel);
 
     var title = document.createElement('div');
-    title.textContent = 'Cast / Open in YouTube Music';
+    title.id = 'korndog-cast-tv-title';
+    title.textContent = 'Cast / Share to KornDog';
     title.style.cssText =
       'color:#39ff14;' +
       'font-size:22px;' +
@@ -184,8 +242,8 @@ val KORNDOG_CAST_SCRIPT = """
     panel.appendChild(title);
 
     var status = document.createElement('div');
-    status.id = 'korndog-premium-cast-status';
-    status.textContent = 'Premium mode: YouTube Music handles playback and casting.';
+    status.id = 'korndog-cast-tv-status';
+    status.textContent = 'Select an option below';
     status.style.cssText =
       'color:#c8b8dd;' +
       'font-size:15px;' +
@@ -206,13 +264,22 @@ val KORNDOG_CAST_SCRIPT = """
         'font-weight:700;' +
         'padding:15px 14px;' +
         'margin:7px 0;' +
-        'box-shadow:inset 0 0 0 1px rgba(57,255,20,0.16);';
+        'box-shadow:inset 0 0 0 1px rgba(57,255,20,0.16);' +
+        'cursor:pointer;' +
+        'transition:all 0.2s;';
+      el.addEventListener('mouseenter', function() {
+        this.style.background = '#4a2575';
+      });
+      el.addEventListener('mouseleave', function() {
+        this.style.background = '#35165f';
+      });
       panel.appendChild(el);
       return el;
     }
 
-    var openBtn = makeAction('Open in YouTube Music / Native Cast');
-    var copyBtn = makeAction('Copy Current Link');
+    var nativeBtn = makeAction('📡 Native Cast / YouTube Music');
+    var generatorBtn = makeAction('📺 Open KornDog Generator');
+    var copyBtn = makeAction('📋 Copy Current URL');
 
     var closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
@@ -224,27 +291,54 @@ val KORNDOG_CAST_SCRIPT = """
       'border-radius:14px;' +
       'font-size:16px;' +
       'font-weight:700;' +
-      'padding:12px 24px;';
+      'padding:12px 24px;' +
+      'cursor:pointer;' +
+      'transition:all 0.2s;';
+    closeBtn.addEventListener('mouseenter', function() {
+      this.style.background = 'rgba(255,75,106,0.1)';
+    });
+    closeBtn.addEventListener('mouseleave', function() {
+      this.style.background = 'transparent';
+    });
     panel.appendChild(closeBtn);
 
-    btn.addEventListener('click', function(e) {
+    // Button handlers
+    castBtn.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
       overlay.style.display = 'flex';
-      status.textContent = 'Premium mode: YouTube Music handles playback and casting.';
-      return false;
+      title.textContent = '📡 Cast Device';
+      status.textContent = 'Send audio to YouTube Music or native cast device.';
     });
 
-    openBtn.addEventListener('click', function() {
+    tvBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      kdOpenGeneratorDirect();
+    });
+
+    nativeBtn.addEventListener('click', function() {
       status.textContent = 'Opening YouTube Music...';
       if (window.NouTubeI && window.NouTubeI.openInYouTubeApp) {
         window.NouTubeI.openInYouTubeApp();
       }
+      setTimeout(function() {
+        overlay.style.display = 'none';
+      }, 800);
+    });
+
+    generatorBtn.addEventListener('click', function() {
+      status.textContent = 'Opening KornDog Generator...';
+      setTimeout(kdOpenGeneratorDirect, 400);
+      setTimeout(function() {
+        overlay.style.display = 'none';
+      }, 800);
     });
 
     copyBtn.addEventListener('click', function() {
       if (window.NouTubeI && window.NouTubeI.copyCurrentUrl) {
         window.NouTubeI.copyCurrentUrl();
+        status.textContent = '✓ URL copied';
       }
     });
 
@@ -256,23 +350,76 @@ val KORNDOG_CAST_SCRIPT = """
       if (e.target === overlay) overlay.style.display = 'none';
     });
 
+    window.kdOpenOverlay = function() {
+      overlay.style.display = 'flex';
+    };
+
     window.kdSetStatus = function(msg) {
       status.textContent = msg;
       overlay.style.display = 'flex';
     };
-
-    window.kdCastResult = function(success, deviceName) {
-      status.textContent = success
-        ? 'Opened YouTube Music native cast path.'
-        : 'Use YouTube Music native cast after opening.';
-    };
-
-    window.kdShowDevices = function() {
-      status.textContent = 'Premium mode active. Use YouTube Music native cast.';
-    };
   }
 
-  setTimeout(initPremiumCastButton, 1000);
+  // KornDog Generator — captures everything
+  function kdOpenGeneratorDirect() {
+    try {
+      function kdText(selectors) {
+        for (var i = 0; i < selectors.length; i++) {
+          var el = document.querySelector(selectors[i]);
+          if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
+        }
+        return '';
+      }
+
+      function kdFindThumb() {
+        var imgs = Array.from(document.querySelectorAll('img[src*="ytimg"], img[src*="googleusercontent"]'))
+          .filter(function(img) {
+            var r = img.getBoundingClientRect();
+            return r.width >= 80 && r.height >= 80 && img.src;
+          })
+          .sort(function(a, b) {
+            var ar = a.getBoundingClientRect();
+            var br = b.getBoundingClientRect();
+            return (br.width * br.height) - (ar.width * ar.height);
+          });
+
+        if (imgs.length) return imgs[0].src;
+
+        var og = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
+        if (og && og.content) return og.content;
+
+        return '';
+      }
+
+      var title = kdText([
+        'ytmusic-player-page .title',
+        '.content-info-wrapper .title',
+        'ytmusic-player-bar .title',
+        '.title.ytmusic-player-bar'
+      ]);
+
+      var artist = kdText([
+        'ytmusic-player-page .subtitle',
+        '.content-info-wrapper .subtitle',
+        'ytmusic-player-bar .subtitle',
+        '.byline.ytmusic-player-bar'
+      ]);
+
+      var thumb = kdFindThumb();
+
+      var params = new URLSearchParams();
+      if (artist) params.set('artist', artist);
+      if (title) params.set('album', title);
+      if (thumb) params.set('thumb', thumb);
+      params.set('from', 'ghostkernel');
+
+      window.location.href = 'https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString();
+    } catch(e) {
+      console.error('[KornDog] Generator error:', e);
+    }
+  }
+
+  setTimeout(initCastAndTVButtons, 1000);
 
   // Audio normalization — 2.0x gain for KornDog signature sound
   if (!window._kdAudioNormInit) {
@@ -332,113 +479,7 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // Triple-tap to open KornDog generator (with fullscreen prevention)
-  if (!window._kdGeneratorTapInit) {
-    window._kdGeneratorTapInit = true;
-
-    var _genTaps = 0;
-    var _genTimer = null;
-
-    function kdText(selList) {
-      for (var i = 0; i < selList.length; i++) {
-        var el = document.querySelector(selList[i]);
-        if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
-      }
-      return '';
-    }
-
-    function kdFindThumb() {
-      var selectors = [
-        'ytmusic-player-page img',
-        'ytmusic-player-bar img',
-        '#thumbnail img',
-        '.thumbnail img',
-        'img[src*="googleusercontent"]',
-        'img[src*="ytimg"]'
-      ];
-
-      for (var i = 0; i < selectors.length; i++) {
-        var el = document.querySelector(selectors[i]);
-        if (el && el.src) return el.src;
-      }
-
-      var bgEls = document.querySelectorAll(
-        'ytmusic-player-page, #song-image, #thumbnail, .image, .thumbnail'
-      );
-
-      for (var j = 0; j < bgEls.length; j++) {
-        var bg = window.getComputedStyle(bgEls[j]).backgroundImage;
-        if (bg && bg !== 'none') {
-          var match = bg.match(/url\(['\""]?(.*?)['\""]?\)/);
-          if (match && match[1]) return match[1];
-        }
-      }
-
-      var og = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
-      if (og && og.content) return og.content;
-
-      return '';
-    }
-
-    function fireKornDogGenerator() {
-      try {
-        var title = kdText([
-          'ytmusic-player-bar .title',
-          '.title.ytmusic-player-bar',
-          'ytmusic-player-page .title',
-          '.content-info-wrapper .title'
-        ]);
-
-        var artist = kdText([
-          'ytmusic-player-bar .subtitle',
-          '.byline.ytmusic-player-bar',
-          'ytmusic-player-page .subtitle',
-          '.content-info-wrapper .subtitle'
-        ]);
-
-        var thumb = kdFindThumb();
-
-        var params = new URLSearchParams();
-        if (artist) params.set('artist', artist);
-        if (title) params.set('album', title);
-        if (thumb) params.set('thumb', thumb);
-        params.set('from', 'ghostkernel');
-
-        window.location.href =
-          'https://korndogrecords.com/korndog-spinning-generator.html?' +
-          params.toString();
-      } catch(e) {}
-    }
-
-    document.addEventListener('pointerdown', function(e) {
-      var img = e.target.closest('img[src*="ytimg"], img[src*="googleusercontent"], ytmusic-player-page, ytmusic-player-bar');
-      if (!img) return;
-
-      var rect = img.getBoundingClientRect();
-      if (rect.width < 40 || rect.height < 40) return;
-
-      // PREVENT FULLSCREEN - critical for triple-tap
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-
-      _genTaps++;
-      clearTimeout(_genTimer);
-
-      if (_genTaps >= 3) {
-        _genTaps = 0;
-        fireKornDogGenerator();
-        return false;
-      }
-
-      _genTimer = setTimeout(function() {
-        _genTaps = 0;
-      }, 400);
-    }, true);
-  }
-
   // ── PREMIUM-LIKE BUFFER STRATEGY WITH AUTO-PLAY FIX ─────────────────────
-  // Seamless offline/background playback, track transitions, phone-off support
   if (!window._kdPremiumBufferInit) {
     window._kdPremiumBufferInit = true;
 
@@ -455,10 +496,8 @@ val KORNDOG_CAST_SCRIPT = """
       try {
         var video = document.querySelector('video');
         if (!video) return;
-
         currentTime = video.currentTime || 0;
         duration = video.duration || 0;
-
         if (video.buffered && video.buffered.length > 0) {
           bufferedEnd = video.buffered.end(video.buffered.length - 1);
         }
@@ -528,25 +567,22 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, true);
 
-    // Smart PAUSE blocking — only block offline with buffer safety
+    // Smart PAUSE blocking
     document.addEventListener('pause', function(e) {
-      if (!playbackAttempted) return; // Allow pause during setup
-
+      if (!playbackAttempted) return;
       updateBufferState();
       
       var hasBuffer = hasEnoughBuffer();
       var shouldPreventPause = !isOnline && hasBuffer && !forcePauseAllowed;
 
       if (shouldPreventPause) {
-        console.log('[KornDog] 🔒 Buffer safe (' + getBufferMargin().toFixed(1) + 's), blocking pause');
+        console.log('[KornDog] 🔒 Buffer safe, blocking pause');
         e.preventDefault();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        
         var video = e.target;
         if (video && video.paused) {
           video.play().catch(function() {});
         }
-        
         return false;
       }
     }, true);
@@ -554,8 +590,6 @@ val KORNDOG_CAST_SCRIPT = """
     // Online/offline handlers
     window.addEventListener('online', function() {
       isOnline = true;
-      console.log('[KornDog] 🌐 Back online');
-      
       var video = document.querySelector('video');
       if (video && video.paused && playbackAttempted) {
         video.play().catch(function() {});
@@ -565,30 +599,21 @@ val KORNDOG_CAST_SCRIPT = """
     window.addEventListener('offline', function() {
       isOnline = false;
       updateBufferState();
-      
       if (hasEnoughBuffer() && playbackAttempted) {
-        console.log('[KornDog] 📡 Offline, buffer safe (' + getBufferMargin().toFixed(1) + 's)');
         var video = document.querySelector('video');
         if (video && video.paused) {
           video.play().catch(function() {});
         }
-      } else {
-        console.log('[KornDog] 📡 Offline, buffer critical or not playing');
       }
     });
 
-    // Monitor buffer margin
+    // Monitor critical buffer
     setInterval(function() {
       if (!playbackAttempted) return;
-      
       updateBufferState();
-      
       if (!isOnline && getBufferMargin() < 3) {
-        console.log('[KornDog] ⚠️ Critical buffer (' + getBufferMargin().toFixed(1) + 's)');
         forcePauseAllowed = true;
-        setTimeout(function() {
-          forcePauseAllowed = false;
-        }, 1000);
+        setTimeout(function() { forcePauseAllowed = false; }, 1000);
       }
     }, 500);
 
@@ -597,27 +622,16 @@ val KORNDOG_CAST_SCRIPT = """
     if (AudioCtx && !window._kdAudioCtxResilience) {
       window._kdAudioCtxResilience = true;
       var ctx = new AudioCtx();
-      
-      document.addEventListener('play', function(e) {
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(function() {});
-        }
+      document.addEventListener('play', function() {
+        if (ctx.state === 'suspended') ctx.resume().catch(function() {});
       }, true);
-      
-      setInterval(function() {
-        var video = document.querySelector('video');
-        if (video && !video.paused && ctx.state === 'suspended') {
-          ctx.resume().catch(function() {});
-        }
-      }, 2000);
     }
 
-    // Prevent screen from locking during playback
+    // Prevent screen lock
     if (window.NouTubeI && window.NouTubeI.keepScreenOn) {
       document.addEventListener('play', function() {
         window.NouTubeI.keepScreenOn(true);
       }, true);
-      
       document.addEventListener('pause', function() {
         window.NouTubeI.keepScreenOn(false);
       }, true);
