@@ -30,6 +30,7 @@ class NouService : Service() {
   private var webView: NouWebView? = null
   private var activity: Activity? = null
   private val binder = NouBinder()
+  private val scope = CoroutineScope(Dispatchers.Main + Job())
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // BACKGROUND PLAYBACK + MEDIA CONTROLS
@@ -41,6 +42,12 @@ class NouService : Service() {
   private var notificationManager: NotificationManager? = null
   private var audioManager: AudioManager? = null
   private var audioFocusRequest: AudioFocusRequest? = null
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SLEEP TIMER
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  private var sleepTimerDeadline: Long = 0
+  private var sleepTimerJob: Job? = null
 
   companion object {
     private const val NOTIFICATION_CHANNEL_ID = "noutube_playback"
@@ -191,7 +198,44 @@ class NouService : Service() {
     }
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SLEEP TIMER METHODS (Called by NouController)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  fun setSleepTimerDeadline(deadline: Long) {
+    sleepTimerDeadline = deadline
+    sleepTimerJob?.cancel()
+    
+    if (deadline > 0) {
+      sleepTimerJob = scope.launch {
+        val now = System.currentTimeMillis()
+        val delay = deadline - now
+        
+        if (delay > 0) {
+          delay(delay)
+          // Time's up - pause playback
+          webView?.evaluateJavascript("document.querySelector('video, audio')?.pause?.();", null)
+          isPlaying = false
+          updateNotification()
+        }
+      }
+    }
+  }
+
+  fun clearSleepTimer() {
+    sleepTimerDeadline = 0
+    sleepTimerJob?.cancel()
+    sleepTimerJob = null
+  }
+
+  fun getSleepTimerRemainingMs(): Long {
+    if (sleepTimerDeadline <= 0) return 0
+    val remaining = sleepTimerDeadline - System.currentTimeMillis()
+    return if (remaining > 0) remaining else 0
+  }
+
   fun exit() {
+    clearSleepTimer()
     if (audioFocusRequest != null) {
       audioManager?.abandonAudioFocusRequest(audioFocusRequest!!)
     }
@@ -201,6 +245,7 @@ class NouService : Service() {
     mediaSession?.release()
     stopForeground(STOP_FOREGROUND_REMOVE)
     exit()
+    scope.cancel()
     super.onDestroy()
   }
 }
