@@ -8,8 +8,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -21,9 +19,9 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.net.URL
 
 class NouService : Service() {
 
@@ -32,9 +30,6 @@ class NouService : Service() {
   private val binder = NouBinder()
   private val scope = CoroutineScope(Dispatchers.Main + Job())
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // BACKGROUND PLAYBACK + MEDIA CONTROLS
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   private var mediaSession: MediaSession? = null
   private var currentTitle = "NouTube"
   private var currentArtist = "Playing..."
@@ -43,10 +38,7 @@ class NouService : Service() {
   private var audioManager: AudioManager? = null
   private var audioFocusRequest: AudioFocusRequest? = null
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // SLEEP TIMER
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  private var sleepTimerDeadline: Long = 0
+  private var sleepTimerDeadline: Long = 0L
   private var sleepTimerJob: Job? = null
 
   companion object {
@@ -75,32 +67,34 @@ class NouService : Service() {
     this.webView = webView
     this.activity = activity
     this.mediaSession = mediaSession
-    
+
     startForeground(NOTIFICATION_ID, buildNotification())
     requestAudioFocus()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    if (intent != null) {
-      when (intent.action) {
-        ACTION_PLAY -> {
-          isPlaying = true
-          webView?.evaluateJavascript("document.querySelector('video, audio')?.play?.();", null)
-          updateNotification()
-        }
-        ACTION_PAUSE -> {
-          isPlaying = false
-          webView?.evaluateJavascript("document.querySelector('video, audio')?.pause?.();", null)
-          updateNotification()
-        }
-        ACTION_NEXT -> {
-          webView?.evaluateJavascript("document.querySelector('[aria-label=\"Next\"]')?.click?.();", null)
-        }
-        ACTION_PREVIOUS -> {
-          webView?.evaluateJavascript("document.querySelector('[aria-label=\"Previous\"]')?.click?.();", null)
-        }
+    when (intent?.action) {
+      ACTION_PLAY -> {
+        isPlaying = true
+        webView?.evaluateJavascript("document.querySelector('video, audio')?.play?.();", null)
+        updateNotification()
+      }
+
+      ACTION_PAUSE -> {
+        isPlaying = false
+        webView?.evaluateJavascript("document.querySelector('video, audio')?.pause?.();", null)
+        updateNotification()
+      }
+
+      ACTION_NEXT -> {
+        webView?.evaluateJavascript("document.querySelector('[aria-label=\"Next\"]')?.click?.();", null)
+      }
+
+      ACTION_PREVIOUS -> {
+        webView?.evaluateJavascript("document.querySelector('[aria-label=\"Previous\"]')?.click?.();", null)
       }
     }
+
     return START_STICKY
   }
 
@@ -114,6 +108,7 @@ class NouService : Service() {
         description = "Controls for NouTube music playback"
         setShowBadge(false)
       }
+
       notificationManager?.createNotificationChannel(channel)
     }
   }
@@ -133,7 +128,7 @@ class NouService : Service() {
       )
     }
 
-    val notificationBuilder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+    return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
       .setSmallIcon(android.R.drawable.ic_media_play)
       .setContentTitle(currentTitle)
       .setContentText(currentArtist)
@@ -150,14 +145,14 @@ class NouService : Service() {
         "Next",
         getPendingIntent(ACTION_NEXT)
       )
-
-    return notificationBuilder.build()
+      .build()
   }
 
   private fun getPendingIntent(action: String): PendingIntent {
     val intent = Intent(this, NouService::class.java).apply {
       this.action = action
     }
+
     return PendingIntent.getService(
       this,
       action.hashCode(),
@@ -167,13 +162,12 @@ class NouService : Service() {
   }
 
   private fun updateNotification() {
-    val notification = buildNotification()
-    notificationManager?.notify(NOTIFICATION_ID, notification)
+    notificationManager?.notify(NOTIFICATION_ID, buildNotification())
   }
 
   fun notify(title: String, author: String, seconds: Long, thumbnail: String) {
-    currentTitle = if (title.isNotEmpty()) title else "Now Playing"
-    currentArtist = if (author.isNotEmpty()) author else "NouTube"
+    currentTitle = title.ifEmpty { "Now Playing" }
+    currentArtist = author.ifEmpty { "NouTube" }
     isPlaying = true
     updateNotification()
   }
@@ -194,28 +188,35 @@ class NouService : Service() {
         .setAudioAttributes(audioAttributes)
         .build()
 
-      audioManager?.requestAudioFocus(audioFocusRequest!!)
+      audioFocusRequest?.let {
+        audioManager?.requestAudioFocus(it)
+      }
+    } else {
+      @Suppress("DEPRECATION")
+      audioManager?.requestAudioFocus(
+        null,
+        AudioManager.STREAM_MUSIC,
+        AudioManager.AUDIOFOCUS_GAIN
+      )
     }
   }
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // SLEEP TIMER METHODS (Called by NouController)
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   fun setSleepTimerDeadline(deadline: Long) {
     sleepTimerDeadline = deadline
     sleepTimerJob?.cancel()
-    
-    if (deadline > 0) {
+    sleepTimerJob = null
+
+    if (deadline > 0L) {
       sleepTimerJob = scope.launch {
         val now = System.currentTimeMillis()
-        val delay = deadline - now
-        
-        if (delay > 0) {
-          delay(delay)
-          // Time's up - pause playback
+        val waitMs = deadline - now
+
+        if (waitMs > 0L) {
+          delay(waitMs)
+
           webView?.evaluateJavascript("document.querySelector('video, audio')?.pause?.();", null)
           isPlaying = false
+          sleepTimerDeadline = 0L
           updateNotification()
         }
       }
@@ -223,21 +224,28 @@ class NouService : Service() {
   }
 
   fun clearSleepTimer() {
-    sleepTimerDeadline = 0
+    sleepTimerDeadline = 0L
     sleepTimerJob?.cancel()
     sleepTimerJob = null
   }
 
   fun getSleepTimerRemainingMs(): Long {
-    if (sleepTimerDeadline <= 0) return 0
+    if (sleepTimerDeadline <= 0L) return 0L
+
     val remaining = sleepTimerDeadline - System.currentTimeMillis()
-    return if (remaining > 0) remaining else 0
+    return if (remaining > 0L) remaining else 0L
   }
 
   fun exit() {
     clearSleepTimer()
-    if (audioFocusRequest != null) {
-      audioManager?.abandonAudioFocusRequest(audioFocusRequest!!)
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      audioFocusRequest?.let {
+        audioManager?.abandonAudioFocusRequest(it)
+      }
+    } else {
+      @Suppress("DEPRECATION")
+      audioManager?.abandonAudioFocus(null)
     }
   }
 
