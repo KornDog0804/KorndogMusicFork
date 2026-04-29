@@ -9,8 +9,12 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.AttributeSet
 import android.view.ContextMenu
@@ -375,6 +379,24 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, { passive: true });
   }
+
+  // KEEP-ALIVE: Resume AudioContext and WebView playback every 30 seconds
+  if (!window._kdKeepAliveInit) {
+    window._kdKeepAliveInit = true;
+    setInterval(function() {
+      try {
+        if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
+          window._kdAudioCtx.resume();
+        }
+        var videos = document.querySelectorAll('video, audio');
+        videos.forEach(function(v) {
+          if (v && v.paused && !v._kdIgnoreResume) {
+            v.play().catch(function() {});
+          }
+        });
+      } catch(e) {}
+    }, 30000);
+  }
 })();
 """.trimIndent()
 
@@ -447,6 +469,13 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private val gestureDetector = GestureDetector(context, gestureListener)
   private var service: NouService? = null
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // BACKGROUND PLAYBACK + MEDIA CONTROLS ADDITIONS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  private lateinit var mediaSession: MediaSession
+  private var powerManager: PowerManager? = null
+  private var wakeLock: PowerManager.WakeLock? = null
 
   internal val currentActivity: Activity?
     get() = appContext.activityProvider?.currentActivity
@@ -612,11 +641,100 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   init {
     addView(webView)
+    initMediaSession()
     initService()
+    initWakeLock()
     val activity = currentActivity
     activity?.registerForContextMenu(webView)
     webView.addJavascriptInterface(NouJsInterface(context, this), "NouTubeI")
     ViewCompat.setOnApplyWindowInsetsListener(webView) { _, _ -> WindowInsetsCompat.CONSUMED }
+  }
+
+  private fun initMediaSession() {
+    mediaSession = MediaSession(context, "NouTube Media Session")
+    mediaSession.setCallback(object : MediaSession.Callback() {
+      override fun onPlay() {
+        webView.evaluateJavascript("document.querySelector('video, audio')?.play?.();", null)
+      }
+
+      override fun onPause() {
+        webView.evaluateJavascript("document.querySelector('video, audio')?.pause?.();", null)
+      }
+
+      override fun onSkipToNext() {
+        webView.evaluateJavascript(
+          "document.querySelector('[aria-label=\"Next\"]')?.click?.();",
+          null
+        )
+      }
+
+      override fun onSkipToPrevious() {
+        webView.evaluateJavascript(
+          "document.querySelector('[aria-label=\"Previous\"]')?.click?.();",
+          null
+        )
+      }
+    })
+
+    val stateBuilder = PlaybackState.Builder()
+      .setActions(
+        PlaybackState.ACTION_PLAY or
+        PlaybackState.ACTION_PAUSE or
+        PlaybackState.ACTION_SKIP_TO_NEXT or
+        PlaybackState.ACTION_SKIP_TO_PREVIOUS
+      )
+      .setState(PlaybackState.STATE_PLAYING, 0, 1f)
+
+    mediaSession.setPlaybackState(stateBuilder.build())
+    mediaSession.isActive = true
+  }
+
+  private fun initWakeLock() {
+    powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager?
+    wakeLock = powerManager?.newWakeLock(
+      PowerManager.PARTIAL_WAKE_LOCK,
+      "NouTube::PlaybackWakeLock"
+    )
+  }
+
+  fun setMediaMetadata(title: String, artist: String, albumArt: Bitmap?) {
+    val metadataBuilder = MediaMetadata.Builder()
+      .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+      .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+      .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
+      .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
+
+    if (albumArt != null) {
+      metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, albumArt)
+      metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ART, albumArt)
+    }
+
+    mediaSession.setMetadata(metadataBuilder.build())
+  }
+
+  fun setPlaybackState(isPlaying: Boolean) {
+    val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+    val stateBuilder = PlaybackState.Builder()
+      .setActions(
+        PlaybackState.ACTION_PLAY or
+        PlaybackState.ACTION_PAUSE or
+        PlaybackState.ACTION_SKIP_TO_NEXT or
+        PlaybackState.ACTION_SKIP_TO_PREVIOUS
+      )
+      .setState(state, 0, 1f)
+
+    mediaSession.setPlaybackState(stateBuilder.build())
+
+    // Acquire/release wake lock based on playback state
+    if (isPlaying && wakeLock != null && !wakeLock!!.isHeld) {
+      try {
+        wakeLock!!.acquire(10*60*1000L) // 10 minutes
+      } catch (e: Exception) {}
+    } else if (!isPlaying && wakeLock != null && wakeLock!!.isHeld) {
+      try {
+        wakeLock!!.release()
+      } catch (e: Exception) {}
+    }
   }
 
   fun initService() {
@@ -626,7 +744,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
       override fun onServiceConnected(name: ComponentName, binder: IBinder) {
         val nouBinder = binder as NouService.NouBinder
         service = nouBinder.getService()
-        service?.initialize(webView, activity)
+        service?.initialize(webView, activity, mediaSession)
         nouController.service = service
         nouController.applyPendingSleepTimer()
       }
@@ -635,6 +753,8 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
 
     val intent = Intent(activity, NouService::class.java)
+    // Use ContextCompat.startForegroundService for proper foreground service
+    androidx.core.content.ContextCompat.startForegroundService(activity, intent)
     activity.bindService(intent, connection, Context.BIND_AUTO_CREATE)
     orientationListener = NouOrientationListener(activity, this)
   }
@@ -667,6 +787,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun notifyProgress(playing: Boolean, pos: Long) {
     service?.notifyProgress(playing, pos)
+    setPlaybackState(playing)
     currentActivity?.runOnUiThread {
       webView.keepScreenOn = playing
       customView?.keepScreenOn = playing
@@ -687,5 +808,9 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun exit() {
     service?.exit()
+    mediaSession.release()
+    if (wakeLock != null && wakeLock!!.isHeld) {
+      wakeLock!!.release()
+    }
   }
 }
