@@ -13,6 +13,7 @@ class NouController {
   internal var service: NouService? = null
   internal var logFn: LogFn? = null
   internal var sleepTimerEventFn: SleepTimerEventFn? = null
+
   private var pendingSleepTimerDeadlineMs: Long? = null
   private var hasPendingSleepTimerChange = false
 
@@ -23,26 +24,35 @@ class NouController {
   fun setSleepTimer(durationMs: Long) {
     val nextDeadlineMs = SystemClock.elapsedRealtime() + durationMs
     val currentService = service
+
     if (currentService != null) {
       currentService.setSleepTimerDeadline(nextDeadlineMs)
+      emitSleepTimerSet(currentService.getSleepTimerRemainingMs())
       return
     }
+
     pendingSleepTimerDeadlineMs = nextDeadlineMs
     hasPendingSleepTimerChange = true
+    emitSleepTimerSet(maxOf(0L, nextDeadlineMs - SystemClock.elapsedRealtime()))
   }
 
   fun clearSleepTimer() {
     val currentService = service
+
     if (currentService != null) {
-      currentService.clearSleepTimer(false)
+      currentService.clearSleepTimer()
+      emitSleepTimerCleared()
       return
     }
+
     pendingSleepTimerDeadlineMs = null
     hasPendingSleepTimerChange = true
+    emitSleepTimerCleared()
   }
 
   fun getSleepTimerRemainingMs(): Long? {
     val currentService = service
+
     if (currentService != null) {
       return currentService.getSleepTimerRemainingMs()
     }
@@ -52,18 +62,21 @@ class NouController {
   }
 
   fun applyPendingSleepTimer() {
-    if (!hasPendingSleepTimerChange) {
-      return
-    }
+    if (!hasPendingSleepTimerChange) return
 
     val currentService = service ?: return
+
     hasPendingSleepTimerChange = false
+
     val pendingDeadlineMs = pendingSleepTimerDeadlineMs
     pendingSleepTimerDeadlineMs = null
+
     if (pendingDeadlineMs != null) {
       currentService.setSleepTimerDeadline(pendingDeadlineMs)
+      emitSleepTimerSet(currentService.getSleepTimerRemainingMs())
     } else {
-      currentService.clearSleepTimer(false)
+      currentService.clearSleepTimer()
+      emitSleepTimerCleared()
     }
   }
 
@@ -71,8 +84,8 @@ class NouController {
     sleepTimerEventFn?.invoke(
       mapOf(
         "remainingMs" to remainingMs,
-        "reason" to reason,
-      ),
+        "reason" to reason
+      )
     )
   }
 
