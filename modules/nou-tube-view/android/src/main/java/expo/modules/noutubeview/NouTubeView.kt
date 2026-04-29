@@ -47,10 +47,32 @@ val VIEW_HOSTS = arrayOf(
 )
 
 val KORNDOG_LIGHT_THEME_CSS = """
-ytmusic-player-bar { background: #2d1450 !important; border-top: 3px solid #39ff14 !important; }
-ytmusic-player-bar .title { color: #39ff14 !important; }
-ytmusic-player-bar .subtitle { color: #bba7d9 !important; }
-tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
+body,
+ytmusic-app,
+ytmusic-browse-response,
+ytmusic-section-list-renderer {
+  background: #120020 !important;
+}
+ytmusic-nav-bar,
+#nav-bar-background {
+  background: #1a0a2e !important;
+}
+ytmusic-player-page {
+  background: linear-gradient(180deg, #120020 0%, #050007 100%) !important;
+}
+ytmusic-player-bar {
+  background: #2d1450 !important;
+  border-top: 3px solid #39ff14 !important;
+}
+ytmusic-player-bar .title {
+  color: #39ff14 !important;
+}
+ytmusic-player-bar .subtitle {
+  color: #bba7d9 !important;
+}
+tp-yt-paper-slider #progressContainer #primaryProgress {
+  background: #39ff14 !important;
+}
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
 val KORNDOG_LIGHT_THEME_SCRIPT = """
@@ -64,7 +86,7 @@ val KORNDOG_LIGHT_THEME_SCRIPT = """
     s.textContent = '${KORNDOG_LIGHT_THEME_CSS}';
     document.head.appendChild(s);
     
-    console.log('[KornDog] Theme injected (minimal)');
+    console.log('[KornDog] Theme injected');
   } catch(e) {
     console.error('[KornDog] Theme error:', e);
   }
@@ -125,82 +147,54 @@ val KORNDOG_GENERATOR_SCRIPT = """
           .trim();
       }
 
-      var title = '';
-      var artist = '';
-      var thumb = '';
-
-      // YouTube Music player structure: look for the currently playing song info
-      // First try: visible text in player area (for mobile view)
-      var allText = document.body.innerText || document.body.textContent;
-      
-      // Look for title in divs with specific styles (large, bright text)
-      var candidates = Array.from(document.querySelectorAll('div, span, yt-formatted-string, h1, h2, h3'))
-        .map(function(el) {
-          var text = cleanText(el.innerText || el.textContent || '');
-          var style = window.getComputedStyle(el);
-          var fontSize = parseFloat(style.fontSize);
-          return { el: el, text: text, size: fontSize };
-        })
-        .filter(function(item) {
-          return item.text && item.text.length > 2 && item.text.length < 140 && item.size >= 16;
-        })
-        .sort(function(a, b) { return b.size - a.size; });
-
-      // Get the largest text (likely the song title)
-      if (candidates.length > 0) {
-        title = candidates[0].text;
-      }
-
-      // For artist, look for text that appears below title or in specific artist containers
-      var artistCandidates = Array.from(document.querySelectorAll('[class*="subtitle"], [class*="byline"], [class*="artist"], span, yt-formatted-string'))
-        .map(function(el) {
-          var text = cleanText(el.innerText || el.textContent || '');
-          return text;
-        })
-        .filter(function(text) {
-          return text && text.length > 1 && text.length < 140 && text !== title && text.toLowerCase().indexOf('album') === -1;
-        });
-
-      // Look for artist name (usually after a " • " separator or as byline)
-      if (artistCandidates.length > 0) {
-        artist = artistCandidates[0];
-        if (artist.indexOf(' • ') > -1) {
-          artist = artist.split(' • ')[0];
+      function firstText(selectors) {
+        for (var i = 0; i < selectors.length; i++) {
+          var el = document.querySelector(selectors[i]);
+          var txt = cleanText(el && (el.innerText || el.textContent));
+          if (txt && txt.length > 1 && txt.length < 120) return txt;
         }
+        return '';
       }
 
-      // Get thumbnail - find images in player area
-      var imgs = Array.from(document.querySelectorAll('img'))
-        .filter(function(img) {
-          var src = img.currentSrc || img.src || '';
-          var r = img.getBoundingClientRect();
-          var isYTImage = src.indexOf('ytimg') > -1 || src.indexOf('googleusercontent') > -1;
-          var isBigEnough = r.width >= 60 && r.height >= 60;
-          var isVisible = r.top >= 0 && r.left >= 0;
-          return isYTImage && isBigEnough && isVisible;
-        })
-        .sort(function(a, b) {
-          var ar = a.getBoundingClientRect();
-          var br = b.getBoundingClientRect();
-          return (br.width * br.height) - (ar.width * ar.height);
-        });
+      var title = firstText([
+        'ytmusic-player-bar .title',
+        'ytmusic-player-bar yt-formatted-string.title',
+        '.content-info-wrapper .title',
+        'ytmusic-player-page .title'
+      ]);
 
-      if (imgs.length > 0) {
-        thumb = imgs[0].currentSrc || imgs[0].src;
-      }
+      var artist = firstText([
+        'ytmusic-player-bar .subtitle',
+        'ytmusic-player-bar .byline',
+        '.content-info-wrapper .subtitle',
+        'ytmusic-player-page .subtitle'
+      ]);
 
-      if (!thumb) {
-        var meta = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
-        if (meta && meta.content) thumb = meta.content;
-      }
+      if (artist.indexOf(' • ') > -1) artist = artist.split(' • ')[0].trim();
+
+      var thumb = '';
+      var playerImgs = Array.from(document.querySelectorAll(
+        'ytmusic-player-bar img, ytmusic-player-page img, .content-info-wrapper img, img'
+      )).filter(function(img) {
+        var src = img.currentSrc || img.src || '';
+        var r = img.getBoundingClientRect();
+        return src && 
+          (src.includes('ytimg') || src.includes('googleusercontent')) &&
+          r.width >= 40 &&
+          r.height >= 40;
+      }).sort(function(a, b) {
+        var ar = a.getBoundingClientRect();
+        var br = b.getBoundingClientRect();
+        return (br.width * br.height) - (ar.width * ar.height);
+      });
+
+      if (playerImgs.length) thumb = playerImgs[0].currentSrc || playerImgs[0].src;
 
       var params = new URLSearchParams();
       params.set('from', 'ghostkernel');
-
       if (artist) params.set('artist', artist);
       if (title) params.set('album', title);
       if (thumb) params.set('thumb', thumb);
-
       params.set('sourceUrl', window.location.href);
 
       window.location.href =
