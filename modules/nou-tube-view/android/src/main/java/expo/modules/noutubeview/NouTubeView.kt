@@ -47,19 +47,10 @@ val VIEW_HOSTS = arrayOf(
 )
 
 val KORNDOG_LIGHT_THEME_CSS = """
-html { background: #160026 !important; }
-body { background: #160026 !important; }
-ytmusic-app { background: #160026 !important; }
-#content { background: #160026 !important; }
-.music-container { background: #160026 !important; }
-.content { background: #160026 !important; }
 ytmusic-player-bar { background: #2d1450 !important; border-top: 3px solid #39ff14 !important; }
-.progress { background: #39ff14 !important; }
-.title { color: #39ff14 !important; }
-.subtitle { color: #bba7d9 !important; }
-yt-formatted-string { color: #f4edff !important; }
+ytmusic-player-bar .title { color: #39ff14 !important; }
+ytmusic-player-bar .subtitle { color: #bba7d9 !important; }
 tp-yt-paper-slider #progressContainer #primaryProgress { background: #39ff14 !important; }
-* { background-color: #160026 !important; }
 """.trimIndent().replace("\n", " ").replace("'", "\\'")
 
 val KORNDOG_LIGHT_THEME_SCRIPT = """
@@ -73,10 +64,7 @@ val KORNDOG_LIGHT_THEME_SCRIPT = """
     s.textContent = '${KORNDOG_LIGHT_THEME_CSS}';
     document.head.appendChild(s);
     
-    document.documentElement.style.background = '#160026';
-    document.body.style.background = '#160026';
-    
-    console.log('[KornDog] Theme injected');
+    console.log('[KornDog] Theme injected (minimal)');
   } catch(e) {
     console.error('[KornDog] Theme error:', e);
   }
@@ -132,57 +120,64 @@ val KORNDOG_GENERATOR_SCRIPT = """
       function cleanText(t) {
         return (t || '')
           .replace(/\s+/g, ' ')
-          .replace('Explicit', '')
-          .replace('Album', '')
+          .replace(/Explicit/g, '')
+          .replace(/Album/g, '')
           .trim();
-      }
-
-      function walkDOM(node, depth) {
-        if (!node || depth > 8) return '';
-        
-        var text = '';
-        if (node.nodeType === 3) {
-          text = cleanText(node.textContent);
-        } else if (node.nodeType === 1) {
-          for (var i = 0; i < node.childNodes.length; i++) {
-            text = walkDOM(node.childNodes[i], depth + 1);
-            if (text && text.length > 1 && text.length < 140) return text;
-          }
-        }
-        return text;
       }
 
       var title = '';
       var artist = '';
       var thumb = '';
 
-      // Get title - walk page header area
-      var titleEls = document.querySelectorAll('h1, h2, [role="heading"]');
-      for (var ti = 0; ti < titleEls.length; ti++) {
-        var t = cleanText(titleEls[ti].innerText || titleEls[ti].textContent);
-        if (t && t.length > 2 && t.length < 140 && !title) {
-          title = t;
-          break;
+      // YouTube Music player structure: look for the currently playing song info
+      // First try: visible text in player area (for mobile view)
+      var allText = document.body.innerText || document.body.textContent;
+      
+      // Look for title in divs with specific styles (large, bright text)
+      var candidates = Array.from(document.querySelectorAll('div, span, yt-formatted-string, h1, h2, h3'))
+        .map(function(el) {
+          var text = cleanText(el.innerText || el.textContent || '');
+          var style = window.getComputedStyle(el);
+          var fontSize = parseFloat(style.fontSize);
+          return { el: el, text: text, size: fontSize };
+        })
+        .filter(function(item) {
+          return item.text && item.text.length > 2 && item.text.length < 140 && item.size >= 16;
+        })
+        .sort(function(a, b) { return b.size - a.size; });
+
+      // Get the largest text (likely the song title)
+      if (candidates.length > 0) {
+        title = candidates[0].text;
+      }
+
+      // For artist, look for text that appears below title or in specific artist containers
+      var artistCandidates = Array.from(document.querySelectorAll('[class*="subtitle"], [class*="byline"], [class*="artist"], span, yt-formatted-string'))
+        .map(function(el) {
+          var text = cleanText(el.innerText || el.textContent || '');
+          return text;
+        })
+        .filter(function(text) {
+          return text && text.length > 1 && text.length < 140 && text !== title && text.toLowerCase().indexOf('album') === -1;
+        });
+
+      // Look for artist name (usually after a " • " separator or as byline)
+      if (artistCandidates.length > 0) {
+        artist = artistCandidates[0];
+        if (artist.indexOf(' • ') > -1) {
+          artist = artist.split(' • ')[0];
         }
       }
 
-      // Get artist - look for subtitle/byline
-      var artistEls = document.querySelectorAll('h3, .subtitle, [class*="byline"], [class*="artist"]');
-      for (var ai = 0; ai < artistEls.length; ai++) {
-        var a = cleanText(artistEls[ai].innerText || artistEls[ai].textContent);
-        if (a && a.indexOf(' • ') > -1) a = a.split(' • ')[0];
-        if (a && a.length > 1 && a.length < 140 && !artist) {
-          artist = a;
-          break;
-        }
-      }
-
-      // Get thumbnail - find largest image
+      // Get thumbnail - find images in player area
       var imgs = Array.from(document.querySelectorAll('img'))
         .filter(function(img) {
           var src = img.currentSrc || img.src || '';
           var r = img.getBoundingClientRect();
-          return (src.indexOf('ytimg') > -1 || src.indexOf('googleusercontent') > -1) && r.width >= 70 && r.height >= 70;
+          var isYTImage = src.indexOf('ytimg') > -1 || src.indexOf('googleusercontent') > -1;
+          var isBigEnough = r.width >= 60 && r.height >= 60;
+          var isVisible = r.top >= 0 && r.left >= 0;
+          return isYTImage && isBigEnough && isVisible;
         })
         .sort(function(a, b) {
           var ar = a.getBoundingClientRect();
@@ -190,7 +185,9 @@ val KORNDOG_GENERATOR_SCRIPT = """
           return (br.width * br.height) - (ar.width * ar.height);
         });
 
-      if (imgs.length) thumb = imgs[0].currentSrc || imgs[0].src;
+      if (imgs.length > 0) {
+        thumb = imgs[0].currentSrc || imgs[0].src;
+      }
 
       if (!thumb) {
         var meta = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
