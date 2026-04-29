@@ -116,14 +116,34 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: release-apks/*.apk
-          tag_name: signed-release-${{ github.run_id }}
-          name: "KornDog Signed Release Build #${{ github.run_number }}"
+          tag_name: ghostkernel-v0.7.3-${{ github.run_id }}
+          name: "🎵 GhostKernel v0.7.3 - KornDog YouTube Music"
           body: |
-            🤘 KornDog APK - Production Signed
+            # KornDog GhostKernel v0.7.3
 
-            Install: app-arm64-v8a-release-signed.apk
+            **What's New:**
+            - ✅ Deep purple (#160026) + lime green (#39ff14) theme
+            - ✅ Improved song data extraction (artist, title, album art)
+            - ✅ Generator button repositioned (top:132px)
+            - ✅ Audio boost maintained (2.0x gain + DynamicsCompressor)
+            - ✅ Buffer watchdog for seamless playback
+            - ✅ YouTube Music Premium features fully intact
 
-            `adb install -r app-arm64-v8a-release-signed.apk`
+            **Features:**
+            - 📺 One-tap generator button
+            - 🎨 KornDog GhostKernel color scheme
+            - 🔊 2.0x audio boost
+            - 🎵 All native YouTube Music controls
+            - 📡 Native cast support
+            - 👆 Swipe to change songs
+            - ⚡ Zero control interference
+
+            **Installation:**
+            ```
+            adb install -r app-arm64-v8a-release-signed.apk
+            ```
+
+            **Build:** Signed release (v0.7.3-GhostKernel, versionCode 50)
           draft: false
           prerelease: false
         env:
