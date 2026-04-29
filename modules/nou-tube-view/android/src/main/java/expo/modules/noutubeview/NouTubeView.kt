@@ -107,7 +107,6 @@ val KORNDOG_THEME_SCRIPT = """
 
 val KORNDOG_CAST_SCRIPT = """
 (function() {
-  // Floating Cast + TV Generator Button UI
   function initCastAndTVButtons() {
     if (!document.body) {
       setTimeout(initCastAndTVButtons, 500);
@@ -116,43 +115,16 @@ val KORNDOG_CAST_SCRIPT = """
 
     if (document.getElementById('korndog-cast-tv-buttons')) return;
 
-    // Container for both buttons
     var container = document.createElement('div');
     container.id = 'korndog-cast-tv-buttons';
-    container.style.cssText =
-      'position:fixed;' +
-      'right:12px;' +
-      'top:86px;' +
-      'z-index:999999;' +
-      'display:flex;' +
-      'flex-direction:column;' +
-      'gap:8px;';
+    container.style.cssText = 'position:fixed;right:12px;top:86px;z-index:999999;display:flex;flex-direction:column;gap:8px;';
     document.body.appendChild(container);
 
-    // Cast Button
     var castBtn = document.createElement('button');
     castBtn.id = 'korndog-cast-btn';
     castBtn.textContent = '📡';
     castBtn.setAttribute('aria-label', 'Cast to device');
-    castBtn.style.cssText =
-      'width:42px;' +
-      'height:42px;' +
-      'border-radius:14px;' +
-      'border:1px solid rgba(57,255,20,0.45);' +
-      'background:rgba(45,20,80,0.72);' +
-      'color:#39ff14;' +
-      'font-size:22px;' +
-      'line-height:1;' +
-      'display:flex;' +
-      'align-items:center;' +
-      'justify-content:center;' +
-      'box-shadow:0 0 14px rgba(57,255,20,0.22);' +
-      'backdrop-filter:blur(10px);' +
-      'opacity:0.92;' +
-      'padding:0;' +
-      'margin:0;' +
-      'cursor:pointer;' +
-      'transition:all 0.2s;';
+    castBtn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;';
 
     castBtn.addEventListener('mouseenter', function() {
       this.style.opacity = '1';
@@ -165,30 +137,11 @@ val KORNDOG_CAST_SCRIPT = """
 
     container.appendChild(castBtn);
 
-    // TV/Generator Button
     var tvBtn = document.createElement('button');
     tvBtn.id = 'korndog-tv-generator-btn';
     tvBtn.textContent = '📺';
     tvBtn.setAttribute('aria-label', 'Open KornDog Generator');
-    tvBtn.style.cssText =
-      'width:42px;' +
-      'height:42px;' +
-      'border-radius:14px;' +
-      'border:1px solid rgba(57,255,20,0.45);' +
-      'background:rgba(45,20,80,0.72);' +
-      'color:#39ff14;' +
-      'font-size:22px;' +
-      'line-height:1;' +
-      'display:flex;' +
-      'align-items:center;' +
-      'justify-content:center;' +
-      'box-shadow:0 0 14px rgba(57,255,20,0.22);' +
-      'backdrop-filter:blur(10px);' +
-      'opacity:0.92;' +
-      'padding:0;' +
-      'margin:0;' +
-      'cursor:pointer;' +
-      'transition:all 0.2s;';
+    tvBtn.style.cssText = 'width:42px;height:42px;border-radius:14px;border:1px solid rgba(57,255,20,0.45);background:rgba(45,20,80,0.72);color:#39ff14;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(57,255,20,0.22);backdrop-filter:blur(10px);opacity:0.92;padding:0;margin:0;cursor:pointer;transition:all 0.2s;';
 
     tvBtn.addEventListener('mouseenter', function() {
       this.style.opacity = '1';
@@ -201,72 +154,31 @@ val KORNDOG_CAST_SCRIPT = """
 
     container.appendChild(tvBtn);
 
-    // Overlay panel for cast/TV options
     var overlay = document.createElement('div');
     overlay.id = 'korndog-cast-tv-overlay';
-    overlay.style.cssText =
-      'display:none;' +
-      'position:fixed;' +
-      'inset:0;' +
-      'z-index:1000000;' +
-      'background:rgba(18,0,35,0.92);' +
-      'backdrop-filter:blur(6px);' +
-      'align-items:center;' +
-      'justify-content:center;' +
-      'padding:22px;' +
-      'box-sizing:border-box;' +
-      'font-family:sans-serif;';
+    overlay.style.cssText = 'display:none;position:fixed;inset:0;z-index:1000000;background:rgba(18,0,35,0.92);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:22px;box-sizing:border-box;font-family:sans-serif;';
     document.body.appendChild(overlay);
 
     var panel = document.createElement('div');
-    panel.style.cssText =
-      'width:100%;' +
-      'max-width:360px;' +
-      'border-radius:22px;' +
-      'background:rgba(45,20,80,0.96);' +
-      'border:1px solid rgba(57,255,20,0.35);' +
-      'box-shadow:0 0 28px rgba(57,255,20,0.18);' +
-      'padding:22px;' +
-      'box-sizing:border-box;' +
-      'text-align:center;';
+    panel.style.cssText = 'width:100%;max-width:360px;border-radius:22px;background:rgba(45,20,80,0.96);border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 28px rgba(57,255,20,0.18);padding:22px;box-sizing:border-box;text-align:center;';
     overlay.appendChild(panel);
 
     var title = document.createElement('div');
     title.id = 'korndog-cast-tv-title';
     title.textContent = 'Cast / Share to KornDog';
-    title.style.cssText =
-      'color:#39ff14;' +
-      'font-size:22px;' +
-      'font-weight:800;' +
-      'margin-bottom:12px;';
+    title.style.cssText = 'color:#39ff14;font-size:22px;font-weight:800;margin-bottom:12px;';
     panel.appendChild(title);
 
     var status = document.createElement('div');
     status.id = 'korndog-cast-tv-status';
     status.textContent = 'Select an option below';
-    status.style.cssText =
-      'color:#c8b8dd;' +
-      'font-size:15px;' +
-      'line-height:1.35;' +
-      'margin-bottom:18px;';
+    status.style.cssText = 'color:#c8b8dd;font-size:15px;line-height:1.35;margin-bottom:18px;';
     panel.appendChild(status);
 
     function makeAction(text) {
       var el = document.createElement('button');
       el.textContent = text;
-      el.style.cssText =
-        'width:100%;' +
-        'border:none;' +
-        'border-radius:14px;' +
-        'background:#35165f;' +
-        'color:#fff;' +
-        'font-size:17px;' +
-        'font-weight:700;' +
-        'padding:15px 14px;' +
-        'margin:7px 0;' +
-        'box-shadow:inset 0 0 0 1px rgba(57,255,20,0.16);' +
-        'cursor:pointer;' +
-        'transition:all 0.2s;';
+      el.style.cssText = 'width:100%;border:none;border-radius:14px;background:#35165f;color:#fff;font-size:17px;font-weight:700;padding:15px 14px;margin:7px 0;box-shadow:inset 0 0 0 1px rgba(57,255,20,0.16);cursor:pointer;transition:all 0.2s;';
       el.addEventListener('mouseenter', function() {
         this.style.background = '#4a2575';
       });
@@ -283,17 +195,7 @@ val KORNDOG_CAST_SCRIPT = """
 
     var closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
-    closeBtn.style.cssText =
-      'margin-top:16px;' +
-      'background:transparent;' +
-      'border:1px solid #ff4b6a;' +
-      'color:#ff4b6a;' +
-      'border-radius:14px;' +
-      'font-size:16px;' +
-      'font-weight:700;' +
-      'padding:12px 24px;' +
-      'cursor:pointer;' +
-      'transition:all 0.2s;';
+    closeBtn.style.cssText = 'margin-top:16px;background:transparent;border:1px solid #ff4b6a;color:#ff4b6a;border-radius:14px;font-size:16px;font-weight:700;padding:12px 24px;cursor:pointer;transition:all 0.2s;';
     closeBtn.addEventListener('mouseenter', function() {
       this.style.background = 'rgba(255,75,106,0.1)';
     });
@@ -302,7 +204,6 @@ val KORNDOG_CAST_SCRIPT = """
     });
     panel.appendChild(closeBtn);
 
-    // Button handlers
     castBtn.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -360,52 +261,66 @@ val KORNDOG_CAST_SCRIPT = """
     };
   }
 
-  // KornDog Generator — captures everything
   function kdOpenGeneratorDirect() {
     try {
       function kdText(selectors) {
         for (var i = 0; i < selectors.length; i++) {
           var el = document.querySelector(selectors[i]);
-          if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
+          if (el && el.textContent && el.textContent.trim()) {
+            var text = el.textContent.trim();
+            if (text.length > 0 && text.length < 200) return text;
+          }
         }
         return '';
       }
 
       function kdFindThumb() {
-        var imgs = Array.from(document.querySelectorAll('img[src*="ytimg"], img[src*="googleusercontent"]'))
-          .filter(function(img) {
-            var r = img.getBoundingClientRect();
-            return r.width >= 80 && r.height >= 80 && img.src;
-          })
-          .sort(function(a, b) {
-            var ar = a.getBoundingClientRect();
-            var br = b.getBoundingClientRect();
-            return (br.width * br.height) - (ar.width * ar.height);
-          });
+        var imgs = Array.from(document.querySelectorAll('img')).filter(function(img) {
+          var src = img.src || img.getAttribute('src') || '';
+          var alt = img.alt || '';
+          return (src.includes('lh3.googleusercontent.com') || src.includes('ytimg') || alt.includes('album') || alt.includes('cover')) && img.width >= 80 && img.height >= 80;
+        }).sort(function(a, b) {
+          return (b.width * b.height) - (a.width * a.height);
+        });
 
-        if (imgs.length) return imgs[0].src;
+        if (imgs.length > 0) {
+          console.log('[KornDog] Found album art:', imgs[0].src);
+          return imgs[0].src;
+        }
 
         var og = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
-        if (og && og.content) return og.content;
+        if (og && og.content) {
+          console.log('[KornDog] Found og:image:', og.content);
+          return og.content;
+        }
 
+        console.log('[KornDog] No album art found');
         return '';
       }
 
       var title = kdText([
+        '.content-info-wrapper .title yt-formatted-string',
+        '.content-info-wrapper yt-formatted-string:first-of-type',
+        '[role="heading"]',
         'ytmusic-player-page .title',
-        '.content-info-wrapper .title',
-        'ytmusic-player-bar .title',
-        '.title.ytmusic-player-bar'
+        '.yt-simple-endpoint.style-scope.ytmusic-responsive-list-item-renderer',
+        '[data-title]',
+        'h2',
+        'h1'
       ]);
 
       var artist = kdText([
-        'ytmusic-player-page .subtitle',
         '.content-info-wrapper .subtitle',
-        'ytmusic-player-bar .subtitle',
-        '.byline.ytmusic-player-bar'
+        '.content-info-wrapper yt-formatted-string:nth-of-type(2)',
+        '.byline',
+        '.byline.style-scope.ytmusic-player-bar',
+        '[data-artist]',
+        'h3'
       ]);
 
       var thumb = kdFindThumb();
+
+      console.log('[KornDog] Captured - Title:', title, 'Artist:', artist);
 
       var params = new URLSearchParams();
       if (artist) params.set('artist', artist);
@@ -421,7 +336,6 @@ val KORNDOG_CAST_SCRIPT = """
 
   setTimeout(initCastAndTVButtons, 1000);
 
-  // Audio normalization — 2.0x gain for KornDog signature sound
   if (!window._kdAudioNormInit) {
     window._kdAudioNormInit = true;
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -479,7 +393,6 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // ── AUTO-PLAY ON FIRST SONG ────────────────────────────────────────────
   if (!window._kdAutoPlayInit) {
     window._kdAutoPlayInit = true;
     var playbackAttempted = false;
@@ -500,7 +413,6 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, true);
 
-    // Reset on track change
     document.addEventListener('loadstart', function(e) {
       if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
         playbackAttempted = false;
@@ -509,7 +421,6 @@ val KORNDOG_CAST_SCRIPT = """
     }, true);
   }
 
-  // ── LIGHT PLAYBACK WATCHDOG: fixes random stalls without fighting controls ──
   if (!window._kdLightWatchdogInit) {
     window._kdLightWatchdogInit = true;
 
@@ -570,7 +481,6 @@ val KORNDOG_CAST_SCRIPT = """
     }, 2500);
   }
 
-  // Prevent screen lock during playback
   if (window.NouTubeI && window.NouTubeI.keepScreenOn) {
     document.addEventListener('play', function() {
       window.NouTubeI.keepScreenOn(true);
