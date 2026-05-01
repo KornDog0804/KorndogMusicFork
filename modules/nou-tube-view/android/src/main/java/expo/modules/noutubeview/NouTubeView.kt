@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -413,6 +414,217 @@ val KORNDOG_CAST_SCRIPT = """
 })();
 """.trimIndent()
 
+val KORNDOG_SYNCED_LYRICS_SCRIPT = """
+(function() {
+  if (window._kdLyricsHighlightInit) return;
+  window._kdLyricsHighlightInit = true;
+
+  var lyricsState = {
+    isLyricsOpen: false,
+    currentHighlightIndex: -1,
+    lyricsLines: [],
+    syncInterval: null,
+    lastSongTitle: ''
+  };
+
+  var style = document.createElement('style');
+  style.id = 'korndog-lyrics-highlight-style';
+  style.textContent = `
+    .korndog-lyric-active {
+      color: #39ff14 !important;
+      font-weight: bold !important;
+      text-shadow: 0 0 8px rgba(57, 255, 20, 0.6) !important;
+      transform: scale(1.02);
+    }
+
+    .korndog-lyric-inactive {
+      color: inherit !important;
+      font-weight: normal !important;
+      text-shadow: none !important;
+      transform: scale(1);
+    }
+
+    .korndog-lyric-line {
+      transition: all 0.2s ease !important;
+    }
+  `;
+  document.head.appendChild(style);
+
+  function detectLyricsPanel() {
+    var lyricsPanel = document.querySelector('ytmusic-description-shelf');
+    if (lyricsPanel && lyricsPanel.offsetHeight > 0) {
+      return true;
+    }
+    return false;
+  }
+
+  function extractLyricsFromPanel() {
+    try {
+      var panel = document.querySelector('ytmusic-description-shelf');
+      if (!panel) return [];
+
+      var lyricsText = panel.innerText || '';
+      if (!lyricsText) return [];
+
+      var lines = lyricsText.split('\n').filter(function(line) {
+        return line.trim().length > 0;
+      });
+
+      var video = document.querySelector('video');
+      var duration = video ? video.duration : 180;
+      
+      var timedLyrics = lines.map(function(line, index) {
+        return {
+          text: line.trim(),
+          timestamp: (duration / Math.max(lines.length, 1)) * index,
+          index: index
+        };
+      });
+
+      return timedLyrics;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function findLyricsLineElements() {
+    try {
+      var panel = document.querySelector('ytmusic-description-shelf');
+      if (!panel) return [];
+
+      var allElements = panel.querySelectorAll('*');
+      var lyricElements = [];
+
+      allElements.forEach(function(el) {
+        var text = el.textContent || '';
+        if (text.length > 0 && text.length < 200 && el.children.length === 0) {
+          lyricElements.push(el);
+        }
+      });
+
+      return lyricElements;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function syncLyricsHighlight() {
+    try {
+      var video = document.querySelector('video');
+      if (!video) return;
+
+      var currentTime = video.currentTime;
+      var lyrics = lyricsState.lyricsLines;
+
+      if (lyrics.length === 0) return;
+
+      var targetIndex = 0;
+      for (var i = lyrics.length - 1; i >= 0; i--) {
+        if (currentTime >= lyrics[i].timestamp) {
+          targetIndex = i;
+          break;
+        }
+      }
+
+      if (targetIndex !== lyricsState.currentHighlightIndex) {
+        if (lyricsState.currentHighlightIndex >= 0 && lyricsState.currentHighlightIndex < lyricsState.lyricsLines.length) {
+          var prevElement = document.querySelector('[data-korndog-lyric-index="' + lyricsState.currentHighlightIndex + '"]');
+          if (prevElement) {
+            prevElement.classList.remove('korndog-lyric-active');
+            prevElement.classList.add('korndog-lyric-inactive');
+          }
+        }
+
+        var currentElement = document.querySelector('[data-korndog-lyric-index="' + targetIndex + '"]');
+        if (currentElement) {
+          currentElement.classList.add('korndog-lyric-active');
+          currentElement.classList.remove('korndog-lyric-inactive');
+          currentElement.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }
+
+        lyricsState.currentHighlightIndex = targetIndex;
+      }
+    } catch (e) {}
+  }
+
+  function startLyricsSync() {
+    if (lyricsState.syncInterval) return;
+
+    lyricsState.syncInterval = setInterval(function() {
+      syncLyricsHighlight();
+    }, 200);
+  }
+
+  function stopLyricsSync() {
+    if (lyricsState.syncInterval) {
+      clearInterval(lyricsState.syncInterval);
+      lyricsState.syncInterval = null;
+    }
+  }
+
+  function tagLyricsElements() {
+    try {
+      var panel = document.querySelector('ytmusic-description-shelf');
+      if (!panel) return;
+
+      var elements = findLyricsLineElements();
+      
+      elements.forEach(function(el, index) {
+        if (!el.hasAttribute('data-korndog-lyric-index')) {
+          el.setAttribute('data-korndog-lyric-index', index);
+          el.classList.add('korndog-lyric-line');
+          el.classList.add('korndog-lyric-inactive');
+        }
+      });
+    } catch (e) {}
+  }
+
+  function monitorLyricsView() {
+    setInterval(function() {
+      try {
+        var isLyricsVisible = detectLyricsPanel();
+
+        if (isLyricsVisible && !lyricsState.isLyricsOpen) {
+          lyricsState.isLyricsOpen = true;
+
+          lyricsState.lyricsLines = extractLyricsFromPanel();
+          
+          setTimeout(tagLyricsElements, 100);
+
+          startLyricsSync();
+        } else if (!isLyricsVisible && lyricsState.isLyricsOpen) {
+          lyricsState.isLyricsOpen = false;
+          stopLyricsSync();
+          lyricsState.currentHighlightIndex = -1;
+        }
+      } catch (e) {}
+    }, 500);
+  }
+
+  function checkForSongChange() {
+    setInterval(function() {
+      try {
+        var titleEl = document.querySelector('ytmusic-player-bar .title, .content-info-wrapper .title');
+        var currentTitle = titleEl ? (titleEl.innerText || titleEl.textContent) : '';
+
+        if (currentTitle && currentTitle !== lyricsState.lastSongTitle && lyricsState.isLyricsOpen) {
+          lyricsState.lastSongTitle = currentTitle;
+
+          setTimeout(function() {
+            lyricsState.lyricsLines = extractLyricsFromPanel();
+            lyricsState.currentHighlightIndex = -1;
+            tagLyricsElements();
+          }, 1000);
+        }
+      } catch (e) {}
+    }, 2000);
+  }
+
+  monitorLyricsView();
+  checkForSongChange();
+})();
+""".trimIndent()
+
 class NouWebView @JvmOverloads constructor(
   context: Context,
   attrs: AttributeSet? = null,
@@ -484,11 +696,12 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
   private var service: NouService? = null
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // BACKGROUND PLAYBACK + MEDIA CONTROLS ADDITIONS
+  // BACKGROUND PLAYBACK + MEDIA CONTROLS + LOCK SCREEN PRIORITY
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   private lateinit var mediaSession: MediaSession
   private var powerManager: PowerManager? = null
   private var wakeLock: PowerManager.WakeLock? = null
+  private var audioManager: AudioManager? = null
 
   internal val currentActivity: Activity?
     get() = appContext.activityProvider?.currentActivity
@@ -545,6 +758,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         override fun onPageFinished(view: WebView, url: String) {
           evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
           evaluateJavascript(KORNDOG_QUEUE_TRACKER_SCRIPT, null)
+          evaluateJavascript(KORNDOG_SYNCED_LYRICS_SCRIPT, null)
         }
 
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
@@ -664,6 +878,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
   }
 
   private fun initMediaSession() {
+    audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager?
     mediaSession = MediaSession(context, "NouTube Media Session")
     mediaSession.setCallback(object : MediaSession.Callback() {
       override fun onPlay() {
