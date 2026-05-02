@@ -9,18 +9,14 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
-import android.media.AudioManager
-import android.media.MediaMetadata
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.AttributeSet
 import android.view.ContextMenu
-import android.view.MenuItem
 import android.view.GestureDetector
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.OrientationEventListener
 import android.view.View
@@ -381,7 +377,6 @@ val KORNDOG_CAST_SCRIPT = """
     }, { passive: true });
   }
 
-  // KEEP-ALIVE: Keep AudioContext alive, but do NOT force-play if user paused
   if (!window._kdKeepAliveInit) {
     window._kdKeepAliveInit = true;
 
@@ -404,10 +399,6 @@ val KORNDOG_CAST_SCRIPT = """
         if (window._kdAudioCtx && window._kdAudioCtx.state === 'suspended') {
           window._kdAudioCtx.resume();
         }
-
-        // Important:
-        // Do NOT auto-play paused media. That was causing the 5-second restart.
-        // Background keep-alive should only keep the audio engine warm.
       } catch(e) {}
     }, 30000);
   }
@@ -419,209 +410,171 @@ val KORNDOG_SYNCED_LYRICS_SCRIPT = """
   if (window._kdLyricsHighlightInit) return;
   window._kdLyricsHighlightInit = true;
 
-  var lyricsState = {
-    isLyricsOpen: false,
-    currentHighlightIndex: -1,
-    lyricsLines: [],
-    syncInterval: null,
-    lastSongTitle: ''
-  };
-
   var style = document.createElement('style');
   style.id = 'korndog-lyrics-highlight-style';
   style.textContent = `
+    .korndog-lyric-line {
+      transition: color .2s ease, text-shadow .2s ease, transform .2s ease !important;
+    }
+
     .korndog-lyric-active {
       color: #39ff14 !important;
-      font-weight: bold !important;
-      text-shadow: 0 0 8px rgba(57, 255, 20, 0.6) !important;
-      transform: scale(1.02);
-    }
-
-    .korndog-lyric-inactive {
-      color: inherit !important;
-      font-weight: normal !important;
-      text-shadow: none !important;
-      transform: scale(1);
-    }
-
-    .korndog-lyric-line {
-      transition: all 0.2s ease !important;
+      font-weight: 900 !important;
+      text-shadow: 0 0 10px rgba(57,255,20,.85) !important;
+      transform: scale(1.02) !important;
     }
   `;
   document.head.appendChild(style);
 
-  function detectLyricsPanel() {
-    var lyricsPanel = document.querySelector('ytmusic-description-shelf');
-    if (lyricsPanel && lyricsPanel.offsetHeight > 0) {
-      return true;
-    }
-    return false;
+  var state = {
+    open: false,
+    current: -1,
+    spans: [],
+    timer: null
+  };
+
+  function visible(el) {
+    if (!el) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
   }
 
-  function extractLyricsFromPanel() {
-    try {
-      var panel = document.querySelector('ytmusic-description-shelf');
-      if (!panel) return [];
+  function findLyricsContainer() {
+    var selectors = [
+      'ytmusic-player-page [role="tabpanel"]',
+      'ytmusic-player-page ytmusic-tab-renderer',
+      'ytmusic-description-shelf',
+      'ytmusic-player-section-list-renderer',
+      '.lyrics-wrapper'
+    ];
 
-      var lyricsText = panel.innerText || '';
-      if (!lyricsText) return [];
+    for (var i = 0; i < selectors.length; i++) {
+      var nodes = document.querySelectorAll(selectors[i]);
+      for (var j = 0; j < nodes.length; j++) {
+        var el = nodes[j];
+        var text = (el.innerText || '').trim();
 
-      var lines = lyricsText.split('\n').filter(function(line) {
-        return line.trim().length > 0;
-      });
-
-      var video = document.querySelector('video');
-      var duration = video ? video.duration : 180;
-      
-      var timedLyrics = lines.map(function(line, index) {
-        return {
-          text: line.trim(),
-          timestamp: (duration / Math.max(lines.length, 1)) * index,
-          index: index
-        };
-      });
-
-      return timedLyrics;
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function findLyricsLineElements() {
-    try {
-      var panel = document.querySelector('ytmusic-description-shelf');
-      if (!panel) return [];
-
-      var allElements = panel.querySelectorAll('*');
-      var lyricElements = [];
-
-      allElements.forEach(function(el) {
-        var text = el.textContent || '';
-        if (text.length > 0 && text.length < 200 && el.children.length === 0) {
-          lyricElements.push(el);
-        }
-      });
-
-      return lyricElements;
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function syncLyricsHighlight() {
-    try {
-      var video = document.querySelector('video');
-      if (!video) return;
-
-      var currentTime = video.currentTime;
-      var lyrics = lyricsState.lyricsLines;
-
-      if (lyrics.length === 0) return;
-
-      var targetIndex = 0;
-      for (var i = lyrics.length - 1; i >= 0; i--) {
-        if (currentTime >= lyrics[i].timestamp) {
-          targetIndex = i;
-          break;
+        if (visible(el) && text.length > 80) {
+          return el;
         }
       }
+    }
 
-      if (targetIndex !== lyricsState.currentHighlightIndex) {
-        if (lyricsState.currentHighlightIndex >= 0 && lyricsState.currentHighlightIndex < lyricsState.lyricsLines.length) {
-          var prevElement = document.querySelector('[data-korndog-lyric-index="' + lyricsState.currentHighlightIndex + '"]');
-          if (prevElement) {
-            prevElement.classList.remove('korndog-lyric-active');
-            prevElement.classList.add('korndog-lyric-inactive');
-          }
-        }
+    return null;
+  }
 
-        var currentElement = document.querySelector('[data-korndog-lyric-index="' + targetIndex + '"]');
-        if (currentElement) {
-          currentElement.classList.add('korndog-lyric-active');
-          currentElement.classList.remove('korndog-lyric-inactive');
-          currentElement.scrollIntoView({behavior: 'smooth', block: 'center'});
-        }
+  function makeSpans(container) {
+    state.spans = [];
 
-        lyricsState.currentHighlightIndex = targetIndex;
+    if (!container) return;
+
+    var walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+
+    var textNodes = [];
+    var node;
+
+    while ((node = walker.nextNode())) {
+      var text = (node.textContent || '').trim();
+
+      if (
+        text.length > 2 &&
+        text.length < 200 &&
+        node.parentElement &&
+        visible(node.parentElement)
+      ) {
+        textNodes.push(node);
       }
-    } catch (e) {}
+    }
+
+    textNodes.forEach(function(textNode, index) {
+      try {
+        var span = document.createElement('span');
+        span.className = 'korndog-lyric-line';
+        span.setAttribute('data-korndog-lyric-index', String(index));
+
+        textNode.parentNode.insertBefore(span, textNode);
+        span.appendChild(textNode);
+
+        state.spans.push(span);
+      } catch(e) {}
+    });
+
+    console.log('[KornDog Lyrics] Wrapped lines:', state.spans.length);
   }
 
-  function startLyricsSync() {
-    if (lyricsState.syncInterval) return;
-
-    lyricsState.syncInterval = setInterval(function() {
-      syncLyricsHighlight();
-    }, 200);
+  function clearActive() {
+    state.spans.forEach(function(span) {
+      span.classList.remove('korndog-lyric-active');
+    });
   }
 
-  function stopLyricsSync() {
-    if (lyricsState.syncInterval) {
-      clearInterval(lyricsState.syncInterval);
-      lyricsState.syncInterval = null;
+  function highlightClosestVisibleLine() {
+    if (!state.spans.length) return;
+
+    var targetY = window.innerHeight * 0.42;
+    var bestIndex = -1;
+    var bestDistance = Infinity;
+
+    state.spans.forEach(function(span, index) {
+      try {
+        if (!visible(span)) return;
+
+        var rect = span.getBoundingClientRect();
+        var distance = Math.abs(rect.top - targetY);
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      } catch(e) {}
+    });
+
+    if (bestIndex >= 0 && bestIndex !== state.current) {
+      clearActive();
+      state.spans[bestIndex].classList.add('korndog-lyric-active');
+      state.current = bestIndex;
     }
   }
 
-  function tagLyricsElements() {
-    try {
-      var panel = document.querySelector('ytmusic-description-shelf');
-      if (!panel) return;
+  function start() {
+    if (state.timer) return;
 
-      var elements = findLyricsLineElements();
-      
-      elements.forEach(function(el, index) {
-        if (!el.hasAttribute('data-korndog-lyric-index')) {
-          el.setAttribute('data-korndog-lyric-index', index);
-          el.classList.add('korndog-lyric-line');
-          el.classList.add('korndog-lyric-inactive');
-        }
-      });
-    } catch (e) {}
+    state.timer = setInterval(function() {
+      highlightClosestVisibleLine();
+    }, 350);
   }
 
-  function monitorLyricsView() {
-    setInterval(function() {
-      try {
-        var isLyricsVisible = detectLyricsPanel();
+  function stop() {
+    if (state.timer) {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
 
-        if (isLyricsVisible && !lyricsState.isLyricsOpen) {
-          lyricsState.isLyricsOpen = true;
-
-          lyricsState.lyricsLines = extractLyricsFromPanel();
-          
-          setTimeout(tagLyricsElements, 100);
-
-          startLyricsSync();
-        } else if (!isLyricsVisible && lyricsState.isLyricsOpen) {
-          lyricsState.isLyricsOpen = false;
-          stopLyricsSync();
-          lyricsState.currentHighlightIndex = -1;
-        }
-      } catch (e) {}
-    }, 500);
+    clearActive();
+    state.current = -1;
+    state.spans = [];
   }
 
-  function checkForSongChange() {
-    setInterval(function() {
-      try {
-        var titleEl = document.querySelector('ytmusic-player-bar .title, .content-info-wrapper .title');
-        var currentTitle = titleEl ? (titleEl.innerText || titleEl.textContent) : '';
+  setInterval(function() {
+    var container = findLyricsContainer();
 
-        if (currentTitle && currentTitle !== lyricsState.lastSongTitle && lyricsState.isLyricsOpen) {
-          lyricsState.lastSongTitle = currentTitle;
+    if (container && !state.open) {
+      state.open = true;
+      makeSpans(container);
+      start();
+      console.log('[KornDog Lyrics] Open');
+    }
 
-          setTimeout(function() {
-            lyricsState.lyricsLines = extractLyricsFromPanel();
-            lyricsState.currentHighlightIndex = -1;
-            tagLyricsElements();
-          }, 1000);
-        }
-      } catch (e) {}
-    }, 2000);
-  }
-
-  monitorLyricsView();
-  checkForSongChange();
+    if (!container && state.open) {
+      state.open = false;
+      stop();
+      console.log('[KornDog Lyrics] Closed');
+    }
+  }, 1000);
 })();
 """.trimIndent()
 
@@ -694,14 +647,8 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private val gestureDetector = GestureDetector(context, gestureListener)
   private var service: NouService? = null
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // BACKGROUND PLAYBACK + MEDIA CONTROLS + LOCK SCREEN PRIORITY
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  private lateinit var mediaSession: MediaSession
   private var powerManager: PowerManager? = null
   private var wakeLock: PowerManager.WakeLock? = null
-  private var audioManager: AudioManager? = null
 
   internal val currentActivity: Activity?
     get() = appContext.activityProvider?.currentActivity
@@ -868,53 +815,12 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   init {
     addView(webView)
-    initMediaSession()
     initService()
     initWakeLock()
     val activity = currentActivity
     activity?.registerForContextMenu(webView)
     webView.addJavascriptInterface(NouJsInterface(context, this), "NouTubeI")
     ViewCompat.setOnApplyWindowInsetsListener(webView) { _, _ -> WindowInsetsCompat.CONSUMED }
-  }
-
-  private fun initMediaSession() {
-    audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager?
-    mediaSession = MediaSession(context, "NouTube Media Session")
-    mediaSession.setCallback(object : MediaSession.Callback() {
-      override fun onPlay() {
-        webView.evaluateJavascript("document.querySelector('video, audio')?.play?.();", null)
-      }
-
-      override fun onPause() {
-        webView.evaluateJavascript("document.querySelector('video, audio')?.pause?.();", null)
-      }
-
-      override fun onSkipToNext() {
-        webView.evaluateJavascript(
-          "document.querySelector('[aria-label=\"Next\"]')?.click?.();",
-          null
-        )
-      }
-
-      override fun onSkipToPrevious() {
-        webView.evaluateJavascript(
-          "document.querySelector('[aria-label=\"Previous\"]')?.click?.();",
-          null
-        )
-      }
-    })
-
-    val stateBuilder = PlaybackState.Builder()
-      .setActions(
-        PlaybackState.ACTION_PLAY or
-        PlaybackState.ACTION_PAUSE or
-        PlaybackState.ACTION_SKIP_TO_NEXT or
-        PlaybackState.ACTION_SKIP_TO_PREVIOUS
-      )
-      .setState(PlaybackState.STATE_PLAYING, 0, 1f)
-
-    mediaSession.setPlaybackState(stateBuilder.build())
-    mediaSession.isActive = true
   }
 
   private fun initWakeLock() {
@@ -925,46 +831,6 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     )
   }
 
-  fun setMediaMetadata(title: String, artist: String, albumArt: Bitmap?) {
-    val metadataBuilder = MediaMetadata.Builder()
-      .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-      .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-      .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
-      .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
-
-    if (albumArt != null) {
-      metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, albumArt)
-      metadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_ART, albumArt)
-    }
-
-    mediaSession.setMetadata(metadataBuilder.build())
-  }
-
-  fun setPlaybackState(isPlaying: Boolean) {
-    val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
-    val stateBuilder = PlaybackState.Builder()
-      .setActions(
-        PlaybackState.ACTION_PLAY or
-        PlaybackState.ACTION_PAUSE or
-        PlaybackState.ACTION_SKIP_TO_NEXT or
-        PlaybackState.ACTION_SKIP_TO_PREVIOUS
-      )
-      .setState(state, 0, 1f)
-
-    mediaSession.setPlaybackState(stateBuilder.build())
-
-    // Acquire/release wake lock based on playback state
-    if (isPlaying && wakeLock != null && !wakeLock!!.isHeld) {
-      try {
-        wakeLock!!.acquire(10*60*1000L) // 10 minutes
-      } catch (e: Exception) {}
-    } else if (!isPlaying && wakeLock != null && wakeLock!!.isHeld) {
-      try {
-        wakeLock!!.release()
-      } catch (e: Exception) {}
-    }
-  }
-
   fun initService() {
     val activity = currentActivity ?: return
 
@@ -972,7 +838,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
       override fun onServiceConnected(name: ComponentName, binder: IBinder) {
         val nouBinder = binder as NouService.NouBinder
         service = nouBinder.getService()
-        service?.initialize(webView, activity, mediaSession)
+        service?.initialize(webView, activity)
         nouController.service = service
         nouController.applyPendingSleepTimer()
       }
@@ -981,7 +847,6 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
 
     val intent = Intent(activity, NouService::class.java)
-    // Use ContextCompat.startForegroundService for proper foreground service
     androidx.core.content.ContextCompat.startForegroundService(activity, intent)
     activity.bindService(intent, connection, Context.BIND_AUTO_CREATE)
     orientationListener = NouOrientationListener(activity, this)
@@ -1015,10 +880,19 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun notifyProgress(playing: Boolean, pos: Long) {
     service?.notifyProgress(playing, pos)
-    setPlaybackState(playing)
     currentActivity?.runOnUiThread {
       webView.keepScreenOn = playing
       customView?.keepScreenOn = playing
+
+      if (playing && wakeLock != null && !wakeLock!!.isHeld) {
+        try {
+          wakeLock!!.acquire(10 * 60 * 1000L)
+        } catch (_: Exception) {}
+      } else if (!playing && wakeLock != null && wakeLock!!.isHeld) {
+        try {
+          wakeLock!!.release()
+        } catch (_: Exception) {}
+      }
     }
   }
 
@@ -1036,7 +910,6 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun exit() {
     service?.exit()
-    mediaSession.release()
     if (wakeLock != null && wakeLock!!.isHeld) {
       wakeLock!!.release()
     }
