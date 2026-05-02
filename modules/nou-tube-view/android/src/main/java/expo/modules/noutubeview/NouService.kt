@@ -10,7 +10,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 
-// ✅ COMPAT FIXES (THE WHOLE POINT)
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -24,7 +23,6 @@ class NouService : Service() {
   private val binder = NouBinder()
   private val scope = CoroutineScope(Dispatchers.Main + Job())
 
-  // ✅ FIXED TYPE
   private lateinit var mediaSession: MediaSessionCompat
 
   private var currentTitle = "NouTube"
@@ -65,6 +63,33 @@ class NouService : Service() {
 
     startForeground(NOTIF_ID, buildNotification())
     requestAudioFocus()
+
+    Log.d(TAG, "Service created")
+  }
+
+  // ✅ REQUIRED FOR NouTubeView
+  fun initialize(webView: NouWebView, activity: Activity) {
+    this.webView = webView
+    this.activity = activity
+  }
+
+  fun notify(title: String, author: String, seconds: Long, thumbnail: String) {
+    currentTitle = if (title.isNotBlank()) title else "Now Playing"
+    currentArtist = if (author.isNotBlank()) author else "NouTube"
+    isPlaying = true
+    updateAll()
+  }
+
+  fun notifyProgress(playing: Boolean, pos: Long) {
+    isPlaying = playing
+    currentPosition = pos
+    updateAll()
+  }
+
+  fun exit() {
+    try {
+      mediaSession.release()
+    } catch (_: Exception) {}
   }
 
   private fun initMediaSession() {
@@ -73,22 +98,22 @@ class NouService : Service() {
     mediaSession.setCallback(object : MediaSessionCompat.Callback() {
       override fun onPlay() {
         isPlaying = true
-        runJs(playJs())
+        runJs("document.querySelector('video,audio')?.play();")
         updateAll()
       }
 
       override fun onPause() {
         isPlaying = false
-        runJs(pauseJs())
+        runJs("document.querySelector('video,audio')?.pause();")
         updateAll()
       }
 
       override fun onSkipToNext() {
-        runJs(nextJs())
+        runJs("document.querySelector('[aria-label*=Next]')?.click();")
       }
 
       override fun onSkipToPrevious() {
-        runJs(prevJs())
+        runJs("document.querySelector('[aria-label*=Previous]')?.click();")
       }
     })
 
@@ -101,12 +126,6 @@ class NouService : Service() {
       webView?.evaluateJavascript(js, null)
     }
   }
-
-  // JS CONTROLS
-  private fun playJs() = "document.querySelector('video,audio')?.play();"
-  private fun pauseJs() = "document.querySelector('video,audio')?.pause();"
-  private fun nextJs() = "document.querySelector('[aria-label*=Next]')?.click();"
-  private fun prevJs() = "document.querySelector('[aria-label*=Previous]')?.click();"
 
   private fun updateAll() {
     updateMetadata()
@@ -167,7 +186,7 @@ class NouService : Service() {
       .setStyle(
         MediaStyle()
           .setMediaSession(mediaSession.sessionToken)
-          .setShowActionsInCompactView(0,1,2)
+          .setShowActionsInCompactView(0, 1, 2)
       )
       .build()
   }
@@ -188,10 +207,10 @@ class NouService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
-      ACTION_PLAY -> { isPlaying = true; runJs(playJs()); updateAll() }
-      ACTION_PAUSE -> { isPlaying = false; runJs(pauseJs()); updateAll() }
-      ACTION_NEXT -> runJs(nextJs())
-      ACTION_PREV -> runJs(prevJs())
+      ACTION_PLAY -> { isPlaying = true; runJs("document.querySelector('video,audio')?.play();"); updateAll() }
+      ACTION_PAUSE -> { isPlaying = false; runJs("document.querySelector('video,audio')?.pause();"); updateAll() }
+      ACTION_NEXT -> runJs("document.querySelector('[aria-label*=Next]')?.click();")
+      ACTION_PREV -> runJs("document.querySelector('[aria-label*=Previous]')?.click();")
     }
     return START_STICKY
   }
@@ -218,7 +237,10 @@ class NouService : Service() {
   }
 
   override fun onDestroy() {
-    mediaSession.release()
+    try {
+      mediaSession.release()
+    } catch (_: Exception) {}
+
     stopForeground(STOP_FOREGROUND_REMOVE)
     scope.cancel()
     super.onDestroy()
