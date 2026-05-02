@@ -55,6 +55,8 @@ class NouService : Service() {
   private var sleepTimerDeadline: Long = 0L
   private var sleepTimerJob: Job? = null
 
+  private var lastControlAt: Long = 0L
+
   companion object {
     private const val TAG = "NouService"
     private const val CHANNEL_ID = "noutube_playback"
@@ -107,6 +109,17 @@ class NouService : Service() {
     return START_STICKY
   }
 
+  private fun controlAllowed(): Boolean {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastControlAt < 750L) {
+      Log.d(TAG, "Control ignored due to debounce")
+      return false
+    }
+
+    lastControlAt = now
+    return true
+  }
+
   private fun initMediaSession() {
     mediaSession = MediaSessionCompat(this, "NouTube Player")
 
@@ -133,26 +146,34 @@ class NouService : Service() {
   }
 
   private fun playFromControl() {
-    isPlaying = true
+    if (!controlAllowed()) return
+
     requestAudioFocus()
     runPlayerJs(playJs())
+
+    isPlaying = true
     updateAll()
   }
 
   private fun pauseFromControl() {
-    isPlaying = false
+    if (!controlAllowed()) return
+
     runPlayerJs(pauseJs())
+
+    isPlaying = false
     updateAll()
   }
 
   private fun nextFromControl() {
+    if (!controlAllowed()) return
+
     runPlayerJs(nextJs())
-    updateAll()
   }
 
   private fun previousFromControl() {
+    if (!controlAllowed()) return
+
     runPlayerJs(previousJs())
-    updateAll()
   }
 
   private fun runPlayerJs(js: String) {
@@ -180,14 +201,22 @@ class NouService : Service() {
     (function(){
       try {
         var media = document.querySelector('video, audio');
-        if (media && media.paused) {
-          media.play();
+
+        if (media) {
+          if (media.paused) {
+            var p = media.play();
+            if (p && p.catch) p.catch(function(){});
+          }
           return true;
         }
 
+        var bar = document.querySelector('ytmusic-player-bar');
+        if (!bar) return false;
+
         var btn =
-          document.querySelector('ytmusic-player-bar [aria-label*="Play"]') ||
-          document.querySelector('[aria-label*="Play"]');
+          bar.querySelector('tp-yt-paper-icon-button[title="Play"]') ||
+          bar.querySelector('button[aria-label="Play"]') ||
+          bar.querySelector('[aria-label="Play"]');
 
         if (btn) {
           btn.click();
@@ -202,14 +231,21 @@ class NouService : Service() {
     (function(){
       try {
         var media = document.querySelector('video, audio');
-        if (media && !media.paused) {
-          media.pause();
+
+        if (media) {
+          if (!media.paused) {
+            media.pause();
+          }
           return true;
         }
 
+        var bar = document.querySelector('ytmusic-player-bar');
+        if (!bar) return false;
+
         var btn =
-          document.querySelector('ytmusic-player-bar [aria-label*="Pause"]') ||
-          document.querySelector('[aria-label*="Pause"]');
+          bar.querySelector('tp-yt-paper-icon-button[title="Pause"]') ||
+          bar.querySelector('button[aria-label="Pause"]') ||
+          bar.querySelector('[aria-label="Pause"]');
 
         if (btn) {
           btn.click();
@@ -223,9 +259,13 @@ class NouService : Service() {
   private fun nextJs(): String = """
     (function(){
       try {
+        var bar = document.querySelector('ytmusic-player-bar');
+        if (!bar) return false;
+
         var btn =
-          document.querySelector('ytmusic-player-bar [aria-label*="Next"]') ||
-          document.querySelector('[aria-label*="Next"]');
+          bar.querySelector('tp-yt-paper-icon-button[title="Next"]') ||
+          bar.querySelector('button[aria-label="Next"]') ||
+          bar.querySelector('[aria-label="Next"]');
 
         if (btn) {
           btn.click();
@@ -239,9 +279,13 @@ class NouService : Service() {
   private fun previousJs(): String = """
     (function(){
       try {
+        var bar = document.querySelector('ytmusic-player-bar');
+        if (!bar) return false;
+
         var btn =
-          document.querySelector('ytmusic-player-bar [aria-label*="Previous"]') ||
-          document.querySelector('[aria-label*="Previous"]');
+          bar.querySelector('tp-yt-paper-icon-button[title="Previous"]') ||
+          bar.querySelector('button[aria-label="Previous"]') ||
+          bar.querySelector('[aria-label="Previous"]');
 
         if (btn) {
           btn.click();
@@ -370,7 +414,6 @@ class NouService : Service() {
       .setActions(
         PlaybackStateCompat.ACTION_PLAY or
           PlaybackStateCompat.ACTION_PAUSE or
-          PlaybackStateCompat.ACTION_PLAY_PAUSE or
           PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
           PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
       )
