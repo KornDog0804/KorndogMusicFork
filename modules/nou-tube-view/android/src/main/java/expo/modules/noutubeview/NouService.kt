@@ -19,8 +19,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.media.app.NotificationCompat.MediaStyle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,29 +34,29 @@ class NouService : Service() {
   private val scope = CoroutineScope(Dispatchers.Main + Job())
 
   private lateinit var mediaSession: MediaSession
+  private var notificationManager: NotificationManager? = null
+  private var audioManager: AudioManager? = null
+  private var audioFocusRequest: AudioFocusRequest? = null
 
   private var currentTitle = "NouTube"
   private var currentArtist = "Playing..."
   private var isPlaying = false
   private var currentPosition: Long = 0L
 
-  private var notificationManager: NotificationManager? = null
-  private var audioManager: AudioManager? = null
-  private var audioFocusRequest: AudioFocusRequest? = null
-
   private var sleepTimerDeadline: Long = 0L
   private var sleepTimerJob: Job? = null
 
   companion object {
     private const val TAG = "NouService"
+    private const val CHANNEL_ID = "noutube_playback"
+    private const val CHANNEL_NAME = "NouTube Playback"
+    private const val NOTIFICATION_ID = 1001
 
-    private const val NOTIFICATION_CHANNEL_ID = "noutube_playback"
-    private const val NOTIFICATION_ID = 1
-
-    private const val ACTION_PLAY = "com.noutube.PLAY"
-    private const val ACTION_PAUSE = "com.noutube.PAUSE"
-    private const val ACTION_NEXT = "com.noutube.NEXT"
-    private const val ACTION_PREVIOUS = "com.noutube.PREVIOUS"
+    private const val ACTION_PLAY = "expo.modules.noutubeview.PLAY"
+    private const val ACTION_PAUSE = "expo.modules.noutubeview.PAUSE"
+    private const val ACTION_NEXT = "expo.modules.noutubeview.NEXT"
+    private const val ACTION_PREVIOUS = "expo.modules.noutubeview.PREVIOUS"
+    private const val ACTION_STOP = "expo.modules.noutubeview.STOP"
   }
 
   inner class NouBinder : Binder() {
@@ -70,16 +68,16 @@ class NouService : Service() {
   override fun onCreate() {
     super.onCreate()
 
-    notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+    notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     createNotificationChannel()
     initMediaSession()
-
-    startForeground(NOTIFICATION_ID, buildNotification())
     requestAudioFocus()
 
-    Log.d(TAG, "NouService created")
+    startForeground(NOTIFICATION_ID, buildNotification())
+
+    Log.d(TAG, "Service created")
   }
 
   fun initialize(webView: NouWebView, activity: Activity) {
@@ -88,18 +86,18 @@ class NouService : Service() {
 
     updateMetadata()
     updatePlaybackState()
-    forceMediaSessionPriority()
     updateNotification()
 
-    Log.d(TAG, "NouService initialized")
+    Log.d(TAG, "Service initialized with WebView")
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
-      ACTION_PLAY -> playFromControl()
-      ACTION_PAUSE -> pauseFromControl()
-      ACTION_NEXT -> nextFromControl()
-      ACTION_PREVIOUS -> previousFromControl()
+      ACTION_PLAY -> handlePlay()
+      ACTION_PAUSE -> handlePause()
+      ACTION_NEXT -> handleNext()
+      ACTION_PREVIOUS -> handlePrevious()
+      ACTION_STOP -> exit()
     }
 
     return START_STICKY
@@ -110,19 +108,23 @@ class NouService : Service() {
 
     mediaSession.setCallback(object : MediaSession.Callback() {
       override fun onPlay() {
-        playFromControl()
+        handlePlay()
       }
 
       override fun onPause() {
-        pauseFromControl()
+        handlePause()
       }
 
       override fun onSkipToNext() {
-        nextFromControl()
+        handleNext()
       }
 
       override fun onSkipToPrevious() {
-        previousFromControl()
+        handlePrevious()
+      }
+
+      override fun onStop() {
+        exit()
       }
     })
 
@@ -131,31 +133,27 @@ class NouService : Service() {
     updatePlaybackState()
   }
 
-  private fun playFromControl() {
+  private fun handlePlay() {
     isPlaying = true
     runPlayerJs(playJs())
     updatePlaybackState()
-    forceMediaSessionPriority()
     updateNotification()
   }
 
-  private fun pauseFromControl() {
+  private fun handlePause() {
     isPlaying = false
     runPlayerJs(pauseJs())
     updatePlaybackState()
-    forceMediaSessionPriority()
     updateNotification()
   }
 
-  private fun nextFromControl() {
+  private fun handleNext() {
     runPlayerJs(nextJs())
-    forceMediaSessionPriority()
     updateNotification()
   }
 
-  private fun previousFromControl() {
+  private fun handlePrevious() {
     runPlayerJs(previousJs())
-    forceMediaSessionPriority()
     updateNotification()
   }
 
@@ -163,20 +161,16 @@ class NouService : Service() {
     val wv = webView ?: return
     val act = activity
 
-    if (act != null) {
-      act.runOnUiThread {
-        try {
+    try {
+      if (act != null) {
+        act.runOnUiThread {
           wv.evaluateJavascript(js, null)
-        } catch (e: Exception) {
-          Log.e(TAG, "JS failed", e)
         }
-      }
-    } else {
-      try {
+      } else {
         wv.evaluateJavascript(js, null)
-      } catch (e: Exception) {
-        Log.e(TAG, "JS failed without activity", e)
       }
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed running player JS", e)
     }
   }
 
@@ -259,13 +253,13 @@ class NouService : Service() {
   private fun createNotificationChannel() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val channel = NotificationChannel(
-        NOTIFICATION_CHANNEL_ID,
-        "NouTube Playback",
+        CHANNEL_ID,
+        CHANNEL_NAME,
         NotificationManager.IMPORTANCE_LOW
       ).apply {
-        description = "NouTube music playback controls"
-        setShowBadge(false)
+        description = "NouTube lock screen and notification controls"
         lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        setShowBadge(false)
       }
 
       notificationManager?.createNotificationChannel(channel)
@@ -273,52 +267,52 @@ class NouService : Service() {
   }
 
   private fun buildNotification(): Notification {
-    val playPauseAction = if (isPlaying) {
-      NotificationCompat.Action(
-        android.R.drawable.ic_media_pause,
-        "Pause",
-        getPendingIntent(ACTION_PAUSE)
-      )
-    } else {
-      NotificationCompat.Action(
-        android.R.drawable.ic_media_play,
-        "Play",
-        getPendingIntent(ACTION_PLAY)
-      )
-    }
+    val builder =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Notification.Builder(this, CHANNEL_ID)
+      } else {
+        @Suppress("DEPRECATION")
+        Notification.Builder(this)
+      }
 
-    val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+    val previousAction = Notification.Action.Builder(
+      android.R.drawable.ic_media_previous,
+      "Previous",
+      pendingIntent(ACTION_PREVIOUS)
+    ).build()
+
+    val playPauseAction = Notification.Action.Builder(
+      if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+      if (isPlaying) "Pause" else "Play",
+      pendingIntent(if (isPlaying) ACTION_PAUSE else ACTION_PLAY)
+    ).build()
+
+    val nextAction = Notification.Action.Builder(
+      android.R.drawable.ic_media_next,
+      "Next",
+      pendingIntent(ACTION_NEXT)
+    ).build()
+
+    builder
       .setSmallIcon(android.R.drawable.ic_media_play)
       .setContentTitle(currentTitle)
       .setContentText(currentArtist)
-      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-      .setPriority(NotificationCompat.PRIORITY_HIGH)
+      .setVisibility(Notification.VISIBILITY_PUBLIC)
       .setOngoing(isPlaying)
       .setOnlyAlertOnce(true)
-      .addAction(
-        android.R.drawable.ic_media_previous,
-        "Previous",
-        getPendingIntent(ACTION_PREVIOUS)
-      )
+      .addAction(previousAction)
       .addAction(playPauseAction)
-      .addAction(
-        android.R.drawable.ic_media_next,
-        "Next",
-        getPendingIntent(ACTION_NEXT)
-      )
-
-    if (::mediaSession.isInitialized) {
-      builder.setStyle(
-        MediaStyle()
+      .addAction(nextAction)
+      .setStyle(
+        Notification.MediaStyle()
           .setMediaSession(mediaSession.sessionToken)
           .setShowActionsInCompactView(0, 1, 2)
       )
-    }
 
     return builder.build()
   }
 
-  private fun getPendingIntent(action: String): PendingIntent {
+  private fun pendingIntent(action: String): PendingIntent {
     val intent = Intent(this, NouService::class.java).apply {
       this.action = action
     }
@@ -342,56 +336,39 @@ class NouService : Service() {
   private fun updateMetadata() {
     if (!::mediaSession.isInitialized) return
 
-    try {
-      val metadata = MediaMetadata.Builder()
-        .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
-        .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist)
-        .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, currentTitle)
-        .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, currentArtist)
-        .build()
+    val metadata = MediaMetadata.Builder()
+      .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
+      .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist)
+      .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, currentTitle)
+      .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, currentArtist)
+      .build()
 
-      mediaSession.setMetadata(metadata)
-    } catch (e: Exception) {
-      Log.e(TAG, "Metadata update failed", e)
-    }
+    mediaSession.setMetadata(metadata)
   }
 
   private fun updatePlaybackState() {
     if (!::mediaSession.isInitialized) return
 
-    try {
-      val state = if (isPlaying) {
-        PlaybackState.STATE_PLAYING
-      } else {
-        PlaybackState.STATE_PAUSED
-      }
-
-      val playbackState = PlaybackState.Builder()
-        .setActions(
-          PlaybackState.ACTION_PLAY or
-            PlaybackState.ACTION_PAUSE or
-            PlaybackState.ACTION_PLAY_PAUSE or
-            PlaybackState.ACTION_SKIP_TO_NEXT or
-            PlaybackState.ACTION_SKIP_TO_PREVIOUS
-        )
-        .setState(state, currentPosition, 1f)
-        .build()
-
-      mediaSession.setPlaybackState(playbackState)
-    } catch (e: Exception) {
-      Log.e(TAG, "PlaybackState update failed", e)
+    val state = if (isPlaying) {
+      PlaybackState.STATE_PLAYING
+    } else {
+      PlaybackState.STATE_PAUSED
     }
-  }
 
-  private fun forceMediaSessionPriority() {
-    if (!::mediaSession.isInitialized) return
+    val playbackState = PlaybackState.Builder()
+      .setActions(
+        PlaybackState.ACTION_PLAY or
+          PlaybackState.ACTION_PAUSE or
+          PlaybackState.ACTION_PLAY_PAUSE or
+          PlaybackState.ACTION_SKIP_TO_NEXT or
+          PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+          PlaybackState.ACTION_STOP
+      )
+      .setState(state, currentPosition, 1f)
+      .build()
 
-    try {
-      mediaSession.isActive = false
-      mediaSession.isActive = true
-    } catch (e: Exception) {
-      Log.e(TAG, "MediaSession priority bump failed", e)
-    }
+    mediaSession.setPlaybackState(playbackState)
+    mediaSession.isActive = true
   }
 
   fun notify(title: String, author: String, seconds: Long, thumbnail: String) {
@@ -401,7 +378,6 @@ class NouService : Service() {
 
     updateMetadata()
     updatePlaybackState()
-    forceMediaSessionPriority()
     updateNotification()
   }
 
@@ -411,7 +387,6 @@ class NouService : Service() {
 
     updateMetadata()
     updatePlaybackState()
-    forceMediaSessionPriority()
     updateNotification()
   }
 
@@ -428,16 +403,9 @@ class NouService : Service() {
           .setOnAudioFocusChangeListener { focusChange ->
             when (focusChange) {
               AudioManager.AUDIOFOCUS_LOSS,
-              AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                isPlaying = false
-                runPlayerJs(pauseJs())
-                updatePlaybackState()
-                updateNotification()
-              }
-
+              AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> handlePause()
               AudioManager.AUDIOFOCUS_GAIN -> {
                 updatePlaybackState()
-                forceMediaSessionPriority()
                 updateNotification()
               }
             }
@@ -470,11 +438,7 @@ class NouService : Service() {
           delay(remaining)
         }
 
-        isPlaying = false
-        runPlayerJs(pauseJs())
-        updatePlaybackState()
-        forceMediaSessionPriority()
-        updateNotification()
+        handlePause()
         nouController.emitSleepTimerExpired()
       }
     }
@@ -488,9 +452,7 @@ class NouService : Service() {
 
   fun getSleepTimerRemainingMs(): Long {
     if (sleepTimerDeadline <= 0L) return 0L
-
-    val remaining = sleepTimerDeadline - SystemClock.elapsedRealtime()
-    return if (remaining > 0L) remaining else 0L
+    return maxOf(0L, sleepTimerDeadline - SystemClock.elapsedRealtime())
   }
 
   fun exit() {
@@ -501,6 +463,14 @@ class NouService : Service() {
         audioManager?.abandonAudioFocusRequest(audioFocusRequest!!)
       }
     } catch (_: Exception) {}
+
+    try {
+      if (::mediaSession.isInitialized) {
+        mediaSession.isActive = false
+      }
+    } catch (_: Exception) {}
+
+    stopSelf()
   }
 
   override fun onDestroy() {
@@ -514,7 +484,6 @@ class NouService : Service() {
       stopForeground(STOP_FOREGROUND_REMOVE)
     } catch (_: Exception) {}
 
-    exit()
     scope.cancel()
 
     super.onDestroy()
