@@ -4,13 +4,16 @@ import android.app.*
 import android.content.*
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.*
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
+import androidx.media.session.MediaSessionCompat
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import kotlinx.coroutines.*
 import java.net.URL
 
@@ -21,7 +24,7 @@ class NouService : Service() {
   private val binder = NouBinder()
   private val scope = CoroutineScope(Dispatchers.Main + Job())
 
-  private lateinit var mediaSession: MediaSession
+  private lateinit var mediaSession: MediaSessionCompat
 
   private var currentTitle = "NouTube"
   private var currentArtist = "Playing..."
@@ -30,6 +33,9 @@ class NouService : Service() {
   private var currentArtwork: Bitmap? = null
 
   private var notificationManager: NotificationManager? = null
+
+  private var sleepTimerDeadline: Long = 0L
+  private var sleepTimerJob: Job? = null
 
   companion object {
     private const val TAG = "NouService"
@@ -50,11 +56,9 @@ class NouService : Service() {
 
   override fun onCreate() {
     super.onCreate()
-
     notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     createChannel()
     initMediaSession()
-
     startForeground(NOTIFICATION_ID, buildNotification())
   }
 
@@ -75,9 +79,9 @@ class NouService : Service() {
   }
 
   private fun initMediaSession() {
-    mediaSession = MediaSession(this, "NouTube")
+    mediaSession = MediaSessionCompat(this, "NouTube")
 
-    mediaSession.setCallback(object : MediaSession.Callback() {
+    mediaSession.setCallback(object : MediaSessionCompat.Callback() {
       override fun onPlay() = play()
       override fun onPause() = pause()
       override fun onSkipToNext() = next()
@@ -89,41 +93,32 @@ class NouService : Service() {
 
   private fun play() {
     isPlaying = true
-    runJS(playJs())
+    runJS("document.querySelector('video,audio')?.play();")
     updateAll()
   }
 
   private fun pause() {
     isPlaying = false
-    runJS(pauseJs())
+    runJS("document.querySelector('video,audio')?.pause();")
     updateAll()
   }
 
   private fun next() {
-    runJS(nextJs())
+    runJS("document.querySelector('[aria-label*=Next]')?.click();")
     updateAll()
   }
 
   private fun prev() {
-    runJS(prevJs())
+    runJS("document.querySelector('[aria-label*=Previous]')?.click();")
     updateAll()
   }
 
   private fun runJS(js: String) {
     val wv = webView ?: return
     activity?.runOnUiThread {
-      try {
-        wv.evaluateJavascript(js, null)
-      } catch (e: Exception) {
-        Log.e(TAG, "JS error", e)
-      }
+      try { wv.evaluateJavascript(js, null) } catch (e: Exception) {}
     }
   }
-
-  private fun playJs() = """document.querySelector('video,audio')?.play();"""
-  private fun pauseJs() = """document.querySelector('video,audio')?.pause();"""
-  private fun nextJs() = """document.querySelector('[aria-label*="Next"]')?.click();"""
-  private fun prevJs() = """document.querySelector('[aria-label*="Previous"]')?.click();"""
 
   private fun createChannel() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -166,9 +161,7 @@ class NouService : Service() {
           .setShowActionsInCompactView(0,1,2)
       )
 
-    currentArtwork?.let {
-      builder.setLargeIcon(it)
-    }
+    currentArtwork?.let { builder.setLargeIcon(it) }
 
     return builder.build()
   }
@@ -190,12 +183,12 @@ class NouService : Service() {
   }
 
   private fun updateMetadata() {
-    val metadata = MediaMetadata.Builder()
-      .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
-      .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist)
+    val metadata = MediaMetadataCompat.Builder()
+      .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
+      .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentArtist)
       .apply {
         currentArtwork?.let {
-          putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it)
+          putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
         }
       }
       .build()
@@ -204,14 +197,17 @@ class NouService : Service() {
   }
 
   private fun updatePlayback() {
-    val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+    val state = if (isPlaying)
+      PlaybackStateCompat.STATE_PLAYING
+    else
+      PlaybackStateCompat.STATE_PAUSED
 
-    val playbackState = PlaybackState.Builder()
+    val playbackState = PlaybackStateCompat.Builder()
       .setActions(
-        PlaybackState.ACTION_PLAY or
-        PlaybackState.ACTION_PAUSE or
-        PlaybackState.ACTION_SKIP_TO_NEXT or
-        PlaybackState.ACTION_SKIP_TO_PREVIOUS
+        PlaybackStateCompat.ACTION_PLAY or
+        PlaybackStateCompat.ACTION_PAUSE or
+        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
       )
       .setState(state, currentPosition, 1f)
       .build()
@@ -239,6 +235,40 @@ class NouService : Service() {
     isPlaying = playing
     currentPosition = pos
     updateAll()
+  }
+
+  // ✅ REQUIRED FOR NouController
+  fun setSleepTimerDeadline(deadline: Long) {
+    sleepTimerDeadline = deadline
+    sleepTimerJob?.cancel()
+
+    if (deadline > 0) {
+      sleepTimerJob = scope.launch {
+        val remaining = deadline - SystemClock.elapsedRealtime()
+        if (remaining > 0) delay(remaining)
+
+        isPlaying = false
+        runJS("document.querySelector('video,audio')?.pause();")
+        updateAll()
+        nouController.emitSleepTimerExpired()
+      }
+    }
+  }
+
+  fun clearSleepTimer() {
+    sleepTimerDeadline = 0L
+    sleepTimerJob?.cancel()
+    sleepTimerJob = null
+  }
+
+  fun getSleepTimerRemainingMs(): Long {
+    if (sleepTimerDeadline <= 0L) return 0L
+    val remaining = sleepTimerDeadline - SystemClock.elapsedRealtime()
+    return if (remaining > 0) remaining else 0L
+  }
+
+  fun exit() {
+    clearSleepTimer()
   }
 
   override fun onDestroy() {
