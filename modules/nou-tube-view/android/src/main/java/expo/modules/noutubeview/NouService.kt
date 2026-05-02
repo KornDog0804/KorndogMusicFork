@@ -21,8 +21,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media.session.MediaSessionCompat
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.PlaybackStateCompat
+import androidx.media.MediaMetadataCompat
+import androidx.media.session.PlaybackStateCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,7 +81,6 @@ class NouService : Service() {
     createNotificationChannel()
     initMediaSession()
 
-    // Start foreground, but DO NOT autoplay.
     startForeground(NOTIFICATION_ID, buildNotification())
     updateAll()
 
@@ -92,7 +91,6 @@ class NouService : Service() {
     this.webView = webView
     this.activity = activity
 
-    // Safe init: metadata/control setup only. No autoplay.
     updateAll()
 
     Log.d(TAG, "NouService initialized")
@@ -131,6 +129,7 @@ class NouService : Service() {
     })
 
     mediaSession.isActive = true
+    Log.d(TAG, "MediaSessionCompat initialized")
   }
 
   private fun playFromControl() {
@@ -386,8 +385,6 @@ class NouService : Service() {
     currentTitle = title.ifBlank { "Now Playing" }
     currentArtist = author.ifBlank { "NouTube" }
 
-    // IMPORTANT:
-    // Metadata updates only. This does NOT force autoplay.
     if (thumbnail.isNotBlank() && thumbnail != lastThumbUrl) {
       lastThumbUrl = thumbnail
       loadArtworkAsync(thumbnail)
