@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.AttributeSet
+import android.util.Log
 import android.view.ContextMenu
 import android.view.GestureDetector
 import android.view.MenuItem
@@ -27,6 +28,7 @@ import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -40,12 +42,9 @@ import expo.modules.kotlin.views.ExpoView
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-val BLOCK_HOSTS = emptyArray<String>()
+const val TAG = "NouTube"
 
-val VIEW_HOSTS = arrayOf(
-  "youtube.com",
-  "youtu.be"
-)
+val VIEW_HOSTS = arrayOf("youtube.com", "youtu.be")
 
 val KORNDOG_THEME_CSS = """
 :root {
@@ -130,7 +129,7 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
     if (!url) return '';
     return url
       .replace(/=w[0-9]+-h[0-9]+.*$/i, '=w800-h800-l90-rj')
-      .replace(/\/s[0-9]+\//i, '/s800/');
+      .replace(//s[0-9]+//i, '/s800/');
   }
 
   function getCurrentSongInfo() {
@@ -138,53 +137,33 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
     var artist = '';
     var thumb = '';
     var seconds = 0;
-    var playing = false;
 
     var media = document.querySelector('video, audio');
-    if (media) {
-      seconds = Math.floor(media.duration || 0);
-      playing = !media.paused;
-    }
+    if (media) seconds = Math.floor(media.duration || 0);
 
-    var titleEl =
-      document.querySelector('ytmusic-player-bar .title') ||
-      document.querySelector('.content-info-wrapper .title') ||
-      document.querySelector('ytmusic-player-page .title');
-
+    var titleEl = document.querySelector('ytmusic-player-bar .title') || 
+                  document.querySelector('.content-info-wrapper .title') ||
+                  document.querySelector('ytmusic-player-page .title');
     if (titleEl) title = cleanText(titleEl.innerText || titleEl.textContent);
 
-    var artistEl =
-      document.querySelector('ytmusic-player-bar .subtitle') ||
-      document.querySelector('.content-info-wrapper .subtitle') ||
-      document.querySelector('ytmusic-player-page .subtitle');
-
+    var artistEl = document.querySelector('ytmusic-player-bar .subtitle') ||
+                   document.querySelector('.content-info-wrapper .subtitle') ||
+                   document.querySelector('ytmusic-player-page .subtitle');
     if (artistEl) artist = cleanText(artistEl.innerText || artistEl.textContent);
 
     if (artist.indexOf(' • ') > -1) artist = artist.split(' • ')[0].trim();
     if (artist.indexOf(' - ') > -1) artist = artist.split(' - ')[0].trim();
 
-    var coverSelectors = [
-      'ytmusic-player-bar img',
-      'ytmusic-player-page img',
-      'ytmusic-thumbnail-renderer img',
-      'img'
-    ];
+    var imgs = Array.from(document.querySelectorAll('img')).filter(function(img) {
+      var src = img.currentSrc || img.src || '';
+      return src && (src.indexOf('ytimg') > -1 || src.indexOf('googleusercontent') > -1);
+    }).sort(function(a, b) {
+      var ar = a.getBoundingClientRect();
+      var br = b.getBoundingClientRect();
+      return (br.width * br.height) - (ar.width * ar.height);
+    });
 
-    for (var s = 0; s < coverSelectors.length && !thumb; s++) {
-      var imgs = Array.from(document.querySelectorAll(coverSelectors[s])).filter(function(img) {
-        var src = img.currentSrc || img.src || '';
-        if (!src) return false;
-        if (src.indexOf('ytimg') === -1 && src.indexOf('googleusercontent') === -1) return false;
-        var r = img.getBoundingClientRect();
-        return r.width >= 40 && r.height >= 40;
-      }).sort(function(a, b) {
-        var ar = a.getBoundingClientRect();
-        var br = b.getBoundingClientRect();
-        return (br.width * br.height) - (ar.width * ar.height);
-      });
-
-      if (imgs.length) thumb = imgs[0].currentSrc || imgs[0].src;
-    }
+    if (imgs.length) thumb = imgs[0].currentSrc || imgs[0].src;
 
     var ogImg = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
     if (!thumb && ogImg && ogImg.content) thumb = ogImg.content;
@@ -199,8 +178,7 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
       title: title,
       artist: artist,
       thumb: upgradeThumb(thumb),
-      seconds: seconds,
-      playing: playing
+      seconds: seconds
     };
   }
 
@@ -222,14 +200,8 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
   function sendToAndroid(info) {
     try {
       if (!info.title || !info.artist) return;
-
       if (window.NouTubeI && window.NouTubeI.notify) {
-        window.NouTubeI.notify(
-          info.title,
-          info.artist,
-          String(info.seconds || 0),
-          info.thumb || ''
-        );
+        window.NouTubeI.notify(info.title, info.artist, String(info.seconds || 0), info.thumb || '');
       }
     } catch(e) {}
   }
@@ -238,25 +210,18 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
     try {
       var media = document.querySelector('video, audio');
       if (!media) return;
-
       var now = Date.now();
       if (now - lastProgressSend < 1000) return;
       lastProgressSend = now;
-
       if (window.NouTubeI && window.NouTubeI.notifyProgress) {
-        window.NouTubeI.notifyProgress(
-          String(!media.paused),
-          String(Math.floor(media.currentTime || 0))
-        );
+        window.NouTubeI.notifyProgress(String(!media.paused), String(Math.floor(media.currentTime || 0)));
       }
     } catch(e) {}
   }
 
   function addToQueue(info) {
     if (!info.title || !info.artist) return;
-
     var queue = getQueue();
-
     if (queue.length > 0 && queue[0].title === info.title && queue[0].artist === info.artist) {
       if (info.thumb && !queue[0].thumb) {
         queue[0].thumb = info.thumb;
@@ -265,26 +230,16 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
       sendToAndroid(info);
       return;
     }
-
-    queue.unshift({
-      title: info.title,
-      artist: info.artist,
-      thumb: info.thumb || '',
-      played: Date.now()
-    });
-
+    queue.unshift({ title: info.title, artist: info.artist, thumb: info.thumb || '', played: Date.now() });
     if (queue.length > MAX_QUEUE_SIZE) queue = queue.slice(0, MAX_QUEUE_SIZE);
-
     saveQueue(queue);
     sendToAndroid(info);
-    console.log('[KornDog Queue] Added:', info.title, '-', info.artist);
   }
 
   function checkForNewSong() {
     try {
       var info = getCurrentSongInfo();
       var songKey = info.title + '|' + info.artist;
-
       if (songKey && info.title && info.artist) {
         if (songKey !== lastSong) {
           lastSong = songKey;
@@ -293,25 +248,14 @@ val KORNDOG_QUEUE_TRACKER_SCRIPT = """
           sendToAndroid(info);
         }
       }
-
       sendProgress();
     } catch(e) {}
   }
 
   setInterval(checkForNewSong, 1500);
-
-  document.addEventListener('play', function() {
-    setTimeout(checkForNewSong, 250);
-  }, true);
-
-  document.addEventListener('pause', function() {
-    setTimeout(checkForNewSong, 250);
-  }, true);
-
-  document.addEventListener('timeupdate', function() {
-    checkForNewSong();
-  }, true);
-
+  document.addEventListener('play', function() { setTimeout(checkForNewSong, 250); }, true);
+  document.addEventListener('pause', function() { setTimeout(checkForNewSong, 250); }, true);
+  document.addEventListener('timeupdate', function() { checkForNewSong(); }, true);
   setTimeout(checkForNewSong, 500);
   setTimeout(checkForNewSong, 2000);
   setTimeout(checkForNewSong, 5000);
@@ -324,7 +268,6 @@ val KORNDOG_CAST_SCRIPT = """
     try {
       var s = document.getElementById('korndog-theme');
       if (s) s.remove();
-
       var style = document.createElement('style');
       style.id = 'korndog-theme';
       style.textContent = '${KORNDOG_THEME_CSS}';
@@ -340,42 +283,18 @@ val KORNDOG_CAST_SCRIPT = """
       setTimeout(initTVButton, 500);
       return;
     }
-
     if (document.getElementById('korndog-tv-btn')) return;
-
     var btn = document.createElement('button');
     btn.id = 'korndog-tv-btn';
     btn.textContent = '📺';
     btn.setAttribute('aria-label', 'Open KornDog Generator');
-    btn.style.cssText =
-      'position:fixed;' +
-      'right:14px;' +
-      'bottom:116px;' +
-      'z-index:999999;' +
-      'width:38px;' +
-      'height:38px;' +
-      'border-radius:13px;' +
-      'border:1px solid rgba(57,255,20,.55);' +
-      'background:rgba(45,20,80,.82);' +
-      'color:#39ff14;' +
-      'font-size:20px;' +
-      'display:flex;' +
-      'align-items:center;' +
-      'justify-content:center;' +
-      'box-shadow:0 0 16px rgba(57,255,20,.35);' +
-      'backdrop-filter:blur(10px);' +
-      'padding:0;' +
-      'margin:0;' +
-      'cursor:pointer;' +
-      'touch-action:manipulation;';
-
+    btn.style.cssText = 'position:fixed;right:14px;bottom:116px;z-index:999999;width:38px;height:38px;border-radius:13px;border:1px solid rgba(57,255,20,.55);background:rgba(45,20,80,.82);color:#39ff14;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(57,255,20,.35);backdrop-filter:blur(10px);padding:0;margin:0;cursor:pointer;touch-action:manipulation;';
     btn.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
       openKornDogGenerator();
       return false;
     });
-
     document.body.appendChild(btn);
   }
 
@@ -385,26 +304,60 @@ val KORNDOG_CAST_SCRIPT = """
       try {
         queue = JSON.parse(localStorage.getItem('korndog_queue') || '[]');
       } catch(e) {}
-
       var song = queue && queue.length ? queue[0] : null;
       var params = new URLSearchParams();
       params.set('from', 'ghostkernel');
-
       if (song) {
         if (song.artist) params.set('artist', song.artist);
         if (song.title) params.set('album', song.title);
         if (song.thumb) params.set('thumb', song.thumb);
       }
-
-      window.location.href =
-        'https://korndogrecords.com/korndog-spinning-generator.html?' +
-        params.toString();
+      window.location.href = 'https://korndogrecords.com/korndog-spinning-generator.html?' + params.toString();
     } catch(e) {
       window.location.href = 'https://korndogrecords.com/korndog-spinning-generator.html?from=ghostkernel';
     }
   }
 
   setTimeout(initTVButton, 1000);
+
+  if (!window._kdAudioNormInit) {
+    window._kdAudioNormInit = true;
+    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      var ctx = new AudioCtx();
+      window._kdAudioCtx = ctx;
+      var compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -35;
+      compressor.knee.value = 20;
+      compressor.ratio.value = 8;
+      compressor.attack.value = 0.005;
+      compressor.release.value = 0.2;
+      var gainNode = ctx.createGain();
+      gainNode.gain.value = 2.0;
+      compressor.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      function hookAudio(el) {
+        try {
+          if (!el._kdHooked) {
+            el._kdHooked = true;
+            var src = ctx.createMediaElementSource(el);
+            src.connect(compressor);
+            if (ctx.state === 'suspended') ctx.resume();
+          }
+        } catch(e) {}
+      }
+      function hookAll() {
+        document.querySelectorAll('audio, video').forEach(function(el) {
+          hookAudio(el);
+        });
+      }
+      var obs = new MutationObserver(hookAll);
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+      hookAll();
+      setTimeout(hookAll, 2000);
+      setTimeout(hookAll, 5000);
+    }
+  }
 
   if (!window._kdAudioResumeInit) {
     window._kdAudioResumeInit = true;
@@ -414,47 +367,113 @@ val KORNDOG_CAST_SCRIPT = """
       }
     }, { passive: true });
   }
+
+  if (!window._kdSmartKeepAliveInit) {
+    window._kdSmartKeepAliveInit = true;
+    window._kdUserPaused = false;
+    window._kdShouldBePlaying = false;
+    window._kdLastMediaTime = 0;
+    window._kdLastMediaCheck = Date.now();
+    window._kdRecovering = false;
+
+    function getMedia() {
+      return document.querySelector('video, audio');
+    }
+
+    function safePlay(media) {
+      try {
+        if (!media || window._kdUserPaused) return;
+        var p = media.play();
+        if (p && p.catch) p.catch(function(){});
+      } catch(e) {}
+    }
+
+    function markPlaying() {
+      window._kdUserPaused = false;
+      window._kdShouldBePlaying = true;
+    }
+
+    function markPaused() {
+      var media = getMedia();
+      if (media && media.currentTime > 0 && !media.ended) {
+        window._kdUserPaused = true;
+        window._kdShouldBePlaying = false;
+      }
+    }
+
+    document.addEventListener('play', function(e) {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        markPlaying();
+      }
+    }, true);
+
+    document.addEventListener('pause', function(e) {
+      if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+        markPaused();
+      }
+    }, true);
+
+    document.addEventListener('canplay', function(e) {
+      var media = e.target;
+      if (media && (media.tagName === 'VIDEO' || media.tagName === 'AUDIO') && window._kdShouldBePlaying && !window._kdUserPaused) {
+        safePlay(media);
+      }
+    }, true);
+
+    setInterval(function() {
+      try {
+        var media = getMedia();
+        if (!media) return;
+        var now = Date.now();
+        var current = media.currentTime || 0;
+        var paused = media.paused;
+        var ended = media.ended;
+        var ready = media.readyState || 0;
+        if (!paused && !ended) {
+          window._kdShouldBePlaying = true;
+          window._kdUserPaused = false;
+        }
+        var timeMoved = Math.abs(current - window._kdLastMediaTime) > 0.15;
+        var stuck = window._kdShouldBePlaying && !window._kdUserPaused && !ended && !timeMoved && now - window._kdLastMediaCheck > 3500;
+        var buffering = window._kdShouldBePlaying && !window._kdUserPaused && !ended && ready < 3;
+        if ((stuck || buffering || paused) && window._kdShouldBePlaying && !window._kdUserPaused) {
+          if (!window._kdRecovering) {
+            window._kdRecovering = true;
+            try {
+              if (media.networkState === 3 || ready === 0) {
+                media.load();
+              }
+            } catch(e) {}
+            safePlay(media);
+            setTimeout(function() {
+              window._kdRecovering = false;
+            }, 2500);
+          }
+        }
+        window._kdLastMediaTime = current;
+        window._kdLastMediaCheck = now;
+      } catch(e) {}
+    }, 2500);
+  }
 })();
 """.trimIndent()
 
 val KORNDOG_SYNCED_LYRICS_SCRIPT = """
 (function() {
-  if (window._kdLyricsHighlightInit) return;
-  window._kdLyricsHighlightInit = true;
+  if (window._kdLyricsInit) return;
+  window._kdLyricsInit = true;
 
   function injectStyle() {
     var old = document.getElementById('korndog-lyrics-highlight-style');
     if (old) old.remove();
-
     var style = document.createElement('style');
     style.id = 'korndog-lyrics-highlight-style';
     style.textContent = `
-      ytmusic-description-shelf-renderer,
-      ytmusic-description-shelf-renderer *,
-      ytmusic-player-section-list-renderer,
-      ytmusic-player-section-list-renderer *,
-      ytmusic-player-page [role="tabpanel"],
-      ytmusic-player-page [role="tabpanel"] *,
-      .lyrics,
-      .lyrics *,
-      .lyrics-wrapper,
-      .lyrics-wrapper * {
-        color: #d8ffd0 !important;
-      }
-
-      ytmusic-description-shelf-renderer span,
-      ytmusic-player-section-list-renderer span,
-      ytmusic-player-page [role="tabpanel"] span,
-      .lyrics span,
-      .lyrics-wrapper span {
-        transition: color .2s ease, text-shadow .2s ease, transform .2s ease !important;
-      }
-
       .korndog-lyric-line {
         display: inline-block !important;
         color: #d8ffd0 !important;
+        transition: color .2s ease, text-shadow .2s ease, transform .2s ease !important;
       }
-
       .korndog-lyric-active {
         color: #39ff14 !important;
         font-weight: 900 !important;
@@ -482,7 +501,6 @@ val KORNDOG_SYNCED_LYRICS_SCRIPT = """
       '.lyrics-wrapper',
       '.lyrics'
     ];
-
     for (var i = 0; i < selectors.length; i++) {
       var nodes = document.querySelectorAll(selectors[i]);
       for (var j = 0; j < nodes.length; j++) {
@@ -491,33 +509,27 @@ val KORNDOG_SYNCED_LYRICS_SCRIPT = """
         if (visible(el) && text.length > 60) return el;
       }
     }
-
     return null;
   }
 
   function wrapLines(container) {
     if (!container || container._kdLyricsWrapped) return;
     container._kdLyricsWrapped = true;
-
     var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
     var nodes = [];
     var node;
-
     while ((node = walker.nextNode())) {
       var text = (node.textContent || '').trim();
       if (text.length > 2 && text.length < 220 && node.parentElement && visible(node.parentElement)) {
         nodes.push(node);
       }
     }
-
     nodes.forEach(function(textNode, index) {
       try {
         if (textNode.parentElement && textNode.parentElement.classList.contains('korndog-lyric-line')) return;
-
         var span = document.createElement('span');
         span.className = 'korndog-lyric-line';
         span.setAttribute('data-korndog-lyric-index', String(index));
-
         textNode.parentNode.insertBefore(span, textNode);
         span.appendChild(textNode);
       } catch(e) {}
@@ -527,27 +539,21 @@ val KORNDOG_SYNCED_LYRICS_SCRIPT = """
   function highlightClosestLine() {
     var lines = Array.from(document.querySelectorAll('.korndog-lyric-line'));
     if (!lines.length) return;
-
     var targetY = window.innerHeight * 0.42;
     var best = null;
     var bestDistance = Infinity;
-
     lines.forEach(function(line) {
       if (!visible(line)) return;
-
       var r = line.getBoundingClientRect();
       var d = Math.abs(r.top - targetY);
-
       if (d < bestDistance) {
         bestDistance = d;
         best = line;
       }
     });
-
     lines.forEach(function(line) {
       line.classList.remove('korndog-lyric-active');
     });
-
     if (best) best.classList.add('korndog-lyric-active');
   }
 
@@ -581,8 +587,16 @@ class NouWebView @JvmOverloads constructor(
       supportZoom()
       builtInZoomControls = true
       displayZoomControls = false
+      cacheMode = WebSettings.LOAD_DEFAULT
+      loadsImagesAutomatically = true
+      blockNetworkImage = false
+      blockNetworkLoads = false
+      databaseEnabled = true
+      allowFileAccess = true
+      allowContentAccess = true
     }
     CookieManager.getInstance().setAcceptCookie(true)
+    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
     setFocusable(true)
     setFocusableInTouchMode(true)
   }
@@ -688,6 +702,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun onPageFinished(view: WebView, url: String) {
+          Log.d(TAG, "Page finished - injecting scripts")
           evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
           evaluateJavascript(KORNDOG_QUEUE_TRACKER_SCRIPT, null)
           evaluateJavascript(KORNDOG_SYNCED_LYRICS_SCRIPT, null)
@@ -826,6 +841,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         service?.initialize(webView, activity)
         nouController.service = service
         nouController.applyPendingSleepTimer()
+        Log.d(TAG, "Service connected and initialized")
       }
 
       override fun onServiceDisconnected(name: ComponentName) {}
@@ -846,6 +862,7 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
       cookieManager.removeAllCookies(null)
     } else {
+      @Suppress("DEPRECATION")
       cookieManager.removeAllCookie()
     }
     cookieManager.flush()
@@ -868,16 +885,6 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     currentActivity?.runOnUiThread {
       webView.keepScreenOn = playing
       customView?.keepScreenOn = playing
-
-      if (playing && wakeLock != null && !wakeLock!!.isHeld) {
-        try {
-          wakeLock!!.acquire(10 * 60 * 1000L)
-        } catch (_: Exception) {}
-      } else if (!playing && wakeLock != null && wakeLock!!.isHeld) {
-        try {
-          wakeLock!!.release()
-        } catch (_: Exception) {}
-      }
     }
   }
 
