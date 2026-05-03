@@ -24,7 +24,7 @@ class NouService : Service() {
   private var currentTitle = "NouTube"
   private var currentArtist = "Ready"
   private var currentPosition = 0L
-  private var currentDuration = 0L
+  private var currentDuration = 5 * 60 * 1000L
   private var isPlaying = false
   private var isLiked = false
 
@@ -115,6 +115,13 @@ class NouService : Service() {
       override fun onSkipToNext() { nextFromControl() }
       override fun onSkipToPrevious() { previousFromControl() }
       override fun onSeekTo(pos: Long) { seekFromControl(pos) }
+
+      override fun onCustomAction(action: String?, extras: Bundle?) {
+        when (action) {
+          ACTION_LIKE -> likeFromControl()
+          ACTION_SHUFFLE -> shuffleFromControl()
+        }
+      }
     })
 
     mediaSession.isActive = true
@@ -333,8 +340,6 @@ class NouService : Service() {
       NotificationCompat.Action(android.R.drawable.ic_media_play, "Play", getPendingIntent(ACTION_PLAY))
     }
 
-    val likeIcon = if (isLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
-
     val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
     val contentIntent = if (launchIntent != null) {
       PendingIntent.getActivity(
@@ -359,8 +364,6 @@ class NouService : Service() {
       .addAction(android.R.drawable.ic_media_previous, "Previous", getPendingIntent(ACTION_PREVIOUS))
       .addAction(playPauseAction)
       .addAction(android.R.drawable.ic_media_next, "Next", getPendingIntent(ACTION_NEXT))
-      .addAction(likeIcon, "Like", getPendingIntent(ACTION_LIKE))
-      .addAction(android.R.drawable.ic_menu_rotate, "Shuffle", getPendingIntent(ACTION_SHUFFLE))
       .setStyle(
         MediaStyle()
           .setMediaSession(mediaSession.sessionToken)
@@ -414,21 +417,36 @@ class NouService : Service() {
     if (!::mediaSession.isInitialized) return
 
     val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+    val likeIcon = if (isLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
+    val likeTitle = if (isLiked) "Liked" else "Like"
 
-    mediaSession.setPlaybackState(
-      PlaybackStateCompat.Builder()
-        .setActions(
-          PlaybackStateCompat.ACTION_PLAY or
-            PlaybackStateCompat.ACTION_PAUSE or
-            PlaybackStateCompat.ACTION_PLAY_PAUSE or
-            PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-            PlaybackStateCompat.ACTION_SEEK_TO
-        )
-        .setState(state, currentPosition, 1f, SystemClock.elapsedRealtime())
-        .build()
-    )
+    val playbackState = PlaybackStateCompat.Builder()
+      .setActions(
+        PlaybackStateCompat.ACTION_PLAY or
+          PlaybackStateCompat.ACTION_PAUSE or
+          PlaybackStateCompat.ACTION_PLAY_PAUSE or
+          PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+          PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+          PlaybackStateCompat.ACTION_SEEK_TO
+      )
+      .addCustomAction(
+        PlaybackStateCompat.CustomAction.Builder(
+          ACTION_LIKE,
+          likeTitle,
+          likeIcon
+        ).build()
+      )
+      .addCustomAction(
+        PlaybackStateCompat.CustomAction.Builder(
+          ACTION_SHUFFLE,
+          "Shuffle",
+          android.R.drawable.ic_menu_rotate
+        ).build()
+      )
+      .setState(state, currentPosition, 1f, SystemClock.elapsedRealtime())
+      .build()
 
+    mediaSession.setPlaybackState(playbackState)
     mediaSession.isActive = true
   }
 
@@ -436,8 +454,12 @@ class NouService : Service() {
     currentTitle = title.ifBlank { "Now Playing" }
     currentArtist = author.ifBlank { "NouTube" }
 
-    if (seconds > 0L) {
-      currentDuration = seconds * 1000L
+    currentDuration = if (seconds > 0L) {
+      seconds * 1000L
+    } else if (currentDuration > 0L) {
+      currentDuration
+    } else {
+      5 * 60 * 1000L
     }
 
     if (!userPausedFromControls) {
@@ -462,6 +484,10 @@ class NouService : Service() {
 
     if (pos >= 0L) {
       currentPosition = pos * 1000L
+    }
+
+    if (currentDuration <= 0L) {
+      currentDuration = 5 * 60 * 1000L
     }
 
     updateAll()
