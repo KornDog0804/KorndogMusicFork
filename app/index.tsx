@@ -1,4 +1,5 @@
-import { BackHandler } from 'react-native'
+import { BackHandler, Pressable, StyleSheet, Text } from 'react-native'
+import { Link } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { useObserveEffect } from '@legendapp/state/react'
 import { ui$ } from '@/states/ui'
@@ -6,7 +7,7 @@ import { openSharedUrl } from '@/lib/page'
 import { useShareIntent } from 'expo-share-intent'
 import * as Linking from 'expo-linking'
 import { MainPage } from '@/components/page/MainPage'
-import { isAndroid, nIf } from '@/lib/utils'
+import { isAndroid } from '@/lib/utils'
 import NouTubeViewModule from '@/modules/nou-tube-view'
 import { sleepTimer$ } from '@/states/sleep-timer'
 import { showToast } from '@/lib/toast'
@@ -83,5 +84,35 @@ export default function HomeScreen() {
     ui$.queueModalOpen.set(false)
   })
 
-  return <MainPage contentJs={scriptOnStart} />
+  return (
+    <>
+      <MainPage contentJs={scriptOnStart} />
+
+      <Link href="/player" asChild>
+        <Pressable style={styles.playerButton}>
+          <Text style={styles.playerButtonText}>🎧 Player</Text>
+        </Pressable>
+      </Link>
+    </>
+  )
 }
+
+const styles = StyleSheet.create({
+  playerButton: {
+    position: 'absolute',
+    right: 14,
+    bottom: 170,
+    backgroundColor: 'rgba(45, 20, 80, 0.88)',
+    borderColor: '#39ff14',
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    zIndex: 9999,
+  },
+  playerButtonText: {
+    color: '#39ff14',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+})
