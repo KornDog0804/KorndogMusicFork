@@ -23,6 +23,7 @@ class NouService : Service() {
   private var currentTitle = "NouTube"
   private var currentArtist = "Ready"
   private var currentPosition = 0L
+  private var currentDuration = 0L
   private var isPlaying = false
   private var currentArtwork: Bitmap? = null
   private var lastThumbUrl = ""
@@ -221,6 +222,8 @@ class NouService : Service() {
       .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentArtist)
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentArtist)
+      .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, currentDuration)
+
     currentArtwork?.let {
       builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
       builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, it)
@@ -234,8 +237,15 @@ class NouService : Service() {
     val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
     mediaSession.setPlaybackState(
       PlaybackStateCompat.Builder()
-        .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
-        .setState(state, currentPosition, 1f)
+        .setActions(
+          PlaybackStateCompat.ACTION_PLAY or
+            PlaybackStateCompat.ACTION_PAUSE or
+            PlaybackStateCompat.ACTION_PLAY_PAUSE or
+            PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+            PlaybackStateCompat.ACTION_SEEK_TO
+        )
+        .setState(state, currentPosition, 1f, SystemClock.elapsedRealtime())
         .build()
     )
     mediaSession.isActive = true
@@ -244,6 +254,8 @@ class NouService : Service() {
   fun notify(title: String, author: String, seconds: Long, thumbnail: String) {
     currentTitle = title.ifBlank { "Now Playing" }
     currentArtist = author.ifBlank { "NouTube" }
+    currentDuration = if (seconds > 0L) seconds * 1000L else 0L
+
     if (thumbnail.isNotBlank() && thumbnail != lastThumbUrl) {
       lastThumbUrl = thumbnail
       loadArtworkAsync(thumbnail)
@@ -252,7 +264,7 @@ class NouService : Service() {
 
   fun notifyProgress(playing: Boolean, pos: Long) {
     isPlaying = playing
-    currentPosition = pos
+    currentPosition = if (pos > 0L) pos * 1000L else 0L
     updateAll()
   }
 
