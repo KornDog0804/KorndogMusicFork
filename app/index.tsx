@@ -1,5 +1,4 @@
 import { BackHandler, Pressable, StyleSheet, Text } from 'react-native'
-import { Link } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { useObserveEffect } from '@legendapp/state/react'
 import { ui$ } from '@/states/ui'
@@ -7,6 +6,7 @@ import { openSharedUrl } from '@/lib/page'
 import { useShareIntent } from 'expo-share-intent'
 import * as Linking from 'expo-linking'
 import { MainPage } from '@/components/page/MainPage'
+import NouTubePlayerOverlay from '@/components/NouTubePlayerOverlay'
 import { isAndroid } from '@/lib/utils'
 import NouTubeViewModule from '@/modules/nou-tube-view'
 import { sleepTimer$ } from '@/states/sleep-timer'
@@ -20,6 +20,7 @@ import {
 
 export default function HomeScreen() {
   const [scriptOnStart] = useState('')
+  const [showPlayer, setShowPlayer] = useState(false)
   const { hasShareIntent, shareIntent } = useShareIntent()
 
   useEffect(() => {
@@ -60,6 +61,11 @@ export default function HomeScreen() {
     const backSubscription = BackHandler.addEventListener(
       'hardwareBackPress',
       function () {
+        if (showPlayer) {
+          setShowPlayer(false)
+          return true
+        }
+
         const webview = ui$.webview.get()
         webview?.goBack()
         return true
@@ -70,7 +76,7 @@ export default function HomeScreen() {
       sleepTimerSubscription?.remove?.()
       backSubscription.remove()
     }
-  }, [])
+  }, [showPlayer])
 
   useEffect(() => {
     const subscription = Linking.addEventListener('url', (e) => {
@@ -88,11 +94,16 @@ export default function HomeScreen() {
     <>
       <MainPage contentJs={scriptOnStart} />
 
-      <Link href="/player" asChild>
-        <Pressable style={styles.playerButton}>
-          <Text style={styles.playerButtonText}>🎧 Player</Text>
-        </Pressable>
-      </Link>
+      <Pressable
+        onPress={() => setShowPlayer(true)}
+        style={styles.playerButton}
+      >
+        <Text style={styles.playerButtonText}>🎧 Player</Text>
+      </Pressable>
+
+      {showPlayer && (
+        <NouTubePlayerOverlay onClose={() => setShowPlayer(false)} />
+      )}
     </>
   )
 }
