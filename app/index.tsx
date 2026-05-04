@@ -1,4 +1,5 @@
 import { BackHandler, Pressable, StyleSheet, Text } from 'react-native'
+import { Link } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { useObserveEffect } from '@legendapp/state/react'
 import { ui$ } from '@/states/ui'
@@ -6,7 +7,6 @@ import { openSharedUrl } from '@/lib/page'
 import { useShareIntent } from 'expo-share-intent'
 import * as Linking from 'expo-linking'
 import { MainPage } from '@/components/page/MainPage'
-import NouTubePlayerOverlay from '@/components/NouTubePlayerOverlay'
 import { isAndroid } from '@/lib/utils'
 import NouTubeViewModule from '@/modules/nou-tube-view'
 import { sleepTimer$ } from '@/states/sleep-timer'
@@ -20,7 +20,6 @@ import {
 
 export default function HomeScreen() {
   const [scriptOnStart] = useState('')
-  const [showPlayer, setShowPlayer] = useState(false)
   const { hasShareIntent, shareIntent } = useShareIntent()
 
   useEffect(() => {
@@ -31,8 +30,7 @@ export default function HomeScreen() {
   }, [hasShareIntent, shareIntent])
 
   useEffect(() => {
-    // Removed broken main.bjs loader
-
+    // Listener from Kotlin
     // @ts-expect-error
     NouTubeViewModule.addListener('log', (evt) => {
       console.log('[kotlin]', evt.msg)
@@ -61,11 +59,6 @@ export default function HomeScreen() {
     const backSubscription = BackHandler.addEventListener(
       'hardwareBackPress',
       function () {
-        if (showPlayer) {
-          setShowPlayer(false)
-          return true
-        }
-
         const webview = ui$.webview.get()
         webview?.goBack()
         return true
@@ -76,7 +69,7 @@ export default function HomeScreen() {
       sleepTimerSubscription?.remove?.()
       backSubscription.remove()
     }
-  }, [showPlayer])
+  }, [])
 
   useEffect(() => {
     const subscription = Linking.addEventListener('url', (e) => {
@@ -94,16 +87,12 @@ export default function HomeScreen() {
     <>
       <MainPage contentJs={scriptOnStart} />
 
-      <Pressable
-        onPress={() => setShowPlayer(true)}
-        style={styles.playerButton}
-      >
-        <Text style={styles.playerButtonText}>🎧 Player</Text>
-      </Pressable>
-
-      {showPlayer && (
-        <NouTubePlayerOverlay onClose={() => setShowPlayer(false)} />
-      )}
+      {/* 🎧 KORN DOG PLAYER BUTTON */}
+      <Link href="/player" asChild>
+        <Pressable style={styles.playerButton}>
+          <Text style={styles.playerButtonText}>🎧 Player</Text>
+        </Pressable>
+      </Link>
     </>
   )
 }
@@ -111,19 +100,26 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   playerButton: {
     position: 'absolute',
-    right: 14,
-    bottom: 170,
-    backgroundColor: 'rgba(45, 20, 80, 0.88)',
+    top: 90, // 👈 sits up near top controls (adjust if needed)
+    right: 12,
+    backgroundColor: 'rgba(45, 20, 80, 0.92)',
     borderColor: '#39ff14',
-    borderWidth: 1,
-    borderRadius: 18,
+    borderWidth: 1.5,
+    borderRadius: 22,
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingVertical: 8,
     zIndex: 9999,
+
+    // 🔥 Glow effect
+    shadowColor: '#39ff14',
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 10,
   },
   playerButtonText: {
     color: '#39ff14',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
 })
