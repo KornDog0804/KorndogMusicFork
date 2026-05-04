@@ -19,8 +19,53 @@ import {
 } from '@/lib/sleep-timer-native'
 
 export default function HomeScreen() {
-  const [scriptOnStart] = useState('')
   const { hasShareIntent, shareIntent } = useShareIntent()
+
+  // 🔥 THIS is the brain — pulls REAL data from YouTube Music
+  const [scriptOnStart] = useState(`
+    (function() {
+      function parseTime(t) {
+        if (!t) return 0;
+        const parts = t.trim().split(':').map(Number);
+        if (parts.length === 2) return parts[0]*60 + parts[1];
+        if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+        return 0;
+      }
+
+      function sendNowPlaying() {
+        try {
+          const titleEl = document.querySelector('ytmusic-player-bar .title');
+          const artistEl = document.querySelector('ytmusic-player-bar .byline');
+          const imgEl = document.querySelector('ytmusic-player-bar img');
+          const timeEl = document.querySelector('ytmusic-player-bar .time-info');
+
+          const title = titleEl ? titleEl.textContent : '';
+          const artist = artistEl ? artistEl.textContent : '';
+          const thumbnail = imgEl ? imgEl.src : '';
+
+          let current = 0;
+          let duration = 0;
+
+          if (timeEl && timeEl.textContent.includes('/')) {
+            const parts = timeEl.textContent.split('/');
+            current = parseTime(parts[0]);
+            duration = parseTime(parts[1]);
+          }
+
+          window.ReactNativeWebView?.postMessage(JSON.stringify({
+            type: 'NOW_PLAYING',
+            title,
+            artist,
+            thumbnail,
+            current,
+            duration
+          }));
+        } catch (e) {}
+      }
+
+      setInterval(sendNowPlaying, 1000);
+    })();
+  `)
 
   useEffect(() => {
     const url = shareIntent.webUrl || shareIntent.text
@@ -30,24 +75,19 @@ export default function HomeScreen() {
   }, [hasShareIntent, shareIntent])
 
   useEffect(() => {
-    // Listener from Kotlin
-    // @ts-expect-error
     NouTubeViewModule.addListener('log', (evt) => {
       console.log('[kotlin]', evt.msg)
     })
 
-    let sleepTimerSubscription: { remove?: () => void } | undefined
+    let sleepTimerSubscription
 
     if (isAndroid && hasSleepTimerNativeSupport()) {
-      void getNativeSleepTimerRemainingMs()
+      getNativeSleepTimerRemainingMs()
         .then((remainingMs) => sleepTimer$.setRemainingMs(remainingMs))
-        .catch((error) => {
-          console.error('getSleepTimerRemainingMs failed', error)
-        })
+        .catch(() => {})
 
       sleepTimerSubscription = addSleepTimerListener((evt) => {
         sleepTimer$.setRemainingMs(evt.remainingMs ?? null)
-
         if (evt.reason === 'expired') {
           showToast(t('sleepTimer.expiredToast'))
         }
@@ -75,7 +115,6 @@ export default function HomeScreen() {
     const subscription = Linking.addEventListener('url', (e) => {
       openSharedUrl(e.url)
     })
-
     return () => subscription.remove()
   }, [])
 
@@ -87,10 +126,10 @@ export default function HomeScreen() {
     <>
       <MainPage contentJs={scriptOnStart} />
 
-      {/* 🎧 KORN DOG PLAYER BUTTON */}
+      {/* 🔥 KornDog Player Button — locked position */}
       <Link href="/player" asChild>
         <Pressable style={styles.playerButton}>
-          <Text style={styles.playerButtonText}>🎧 Player</Text>
+          <Text style={styles.playerButtonText}>🎧</Text>
         </Pressable>
       </Link>
     </>
@@ -100,26 +139,31 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   playerButton: {
     position: 'absolute',
-    top: 90, // 👈 sits up near top controls (adjust if needed)
-    right: 12,
+    right: 16,
+    bottom: 280,
+
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+
     backgroundColor: 'rgba(45, 20, 80, 0.92)',
     borderColor: '#39ff14',
     borderWidth: 1.5,
-    borderRadius: 22,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    zIndex: 9999,
 
-    // 🔥 Glow effect
+    alignItems: 'center',
+    justifyContent: 'center',
+
+    zIndex: 9999,
+    elevation: 12,
+
     shadowColor: '#39ff14',
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 10,
+    shadowOpacity: 0.7,
+    shadowRadius: 12,
   },
+
   playerButtonText: {
     color: '#39ff14',
-    fontSize: 14,
+    fontSize: 22,
     fontWeight: '900',
-    letterSpacing: 0.5,
   },
 })
