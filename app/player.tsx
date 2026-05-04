@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { ui$ } from "@/states/ui";
 
 export default function Player() {
   const router = useRouter();
@@ -31,20 +32,58 @@ export default function Player() {
 
   const isKD = mode === "korndog";
 
+  function runJs(js: string) {
+    try {
+      const webview: any = ui$.webview.get();
+      webview?.executeJavaScript?.(js);
+    } catch {}
+  }
+
+  function playPause() {
+    const nextPlaying = !playing;
+    setPlaying(nextPlaying);
+
+    runJs(`
+      (function(){
+        try{
+          var media=document.querySelector('video,audio');
+          if(media){
+            if(${nextPlaying}){ media.play(); }
+            else { media.pause(); }
+            return true;
+          }
+          var label=${nextPlaying}?'Play':'Pause';
+          var btn=document.querySelector('[aria-label*="'+label+'"],[title*="'+label+'"]');
+          if(btn){btn.click();return true;}
+        }catch(e){}
+        return false;
+      })();
+    `);
+  }
+
+  function nextTrack() {
+    runJs(`(function(){try{var btn=document.querySelector('[aria-label*="Next"],[title*="Next"]');if(btn){btn.click();return true;}}catch(e){}return false;})();`);
+  }
+
+  function previousTrack() {
+    runJs(`(function(){try{var btn=document.querySelector('[aria-label*="Previous"],[title*="Previous"]');if(btn){btn.click();return true;}}catch(e){}return false;})();`);
+  }
+
+  function toggleLike() {
+    setLiked(!liked);
+    runJs(`(function(){try{var btn=document.querySelector('[aria-label*="Like"],[aria-label*="like"],[title*="Like"],[title*="like"]');if(btn){btn.click();return true;}}catch(e){}return false;})();`);
+  }
+
+  function toggleShuffle() {
+    runJs(`(function(){try{var btn=document.querySelector('[aria-label*="Shuffle"],[aria-label*="shuffle"],[title*="Shuffle"],[title*="shuffle"]');if(btn){btn.click();return true;}}catch(e){}return false;})();`);
+  }
+
   function handleImageError() {
-    if (artIndex < artworkList.length - 1) {
-      setArtIndex(artIndex + 1);
-    }
+    if (artIndex < artworkList.length - 1) setArtIndex(artIndex + 1);
   }
 
   return (
-    <ImageBackground
-      source={{ uri: track.artwork }}
-      style={styles.bg}
-      blurRadius={26}
-      resizeMode="cover"
-      onError={handleImageError}
-    >
+    <ImageBackground source={{ uri: track.artwork }} style={styles.bg} blurRadius={26} resizeMode="cover" onError={handleImageError}>
       <View style={styles.dimmer} />
 
       <SafeAreaView style={styles.safe}>
@@ -53,31 +92,19 @@ export default function Player() {
             <Text style={styles.backText}>‹ Back</Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => setMode(isKD ? "clean" : "korndog")}
-            style={styles.modeButton}
-          >
-            <Text style={styles.modeText}>
-              {isKD ? "KornDog Mode" : "Clean Mode"}
-            </Text>
+          <Pressable onPress={() => setMode(isKD ? "clean" : "korndog")} style={styles.modeButton}>
+            <Text style={styles.modeText}>{isKD ? "KornDog Mode" : "Clean Mode"}</Text>
           </Pressable>
 
           <Text style={styles.menu}>⋮</Text>
         </View>
 
         <View style={[styles.artWrap, isKD && styles.kdGlow]}>
-          <Image
-            source={{ uri: track.artwork }}
-            style={styles.art}
-            resizeMode="cover"
-            onError={handleImageError}
-          />
+          <Image source={{ uri: track.artwork }} style={styles.art} resizeMode="cover" onError={handleImageError} />
         </View>
 
         <View style={styles.infoPanel}>
-          <Text style={[styles.title, isKD && styles.kdTitle]}>
-            {track.title}
-          </Text>
+          <Text style={[styles.title, isKD && styles.kdTitle]}>{track.title}</Text>
           <Text style={styles.artist}>{track.artist}</Text>
 
           <View style={styles.progressRow}>
@@ -90,29 +117,24 @@ export default function Player() {
         </View>
 
         <View style={styles.controlsGlass}>
-          <Pressable style={styles.iconButton}>
+          <Pressable onPress={toggleShuffle} style={styles.iconButton}>
             <Text style={styles.icon}>↝</Text>
           </Pressable>
 
-          <Pressable style={styles.iconButton}>
+          <Pressable onPress={previousTrack} style={styles.iconButton}>
             <Text style={styles.icon}>⏮</Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => setPlaying(!playing)}
-            style={[styles.playButton, isKD && styles.kdPlay]}
-          >
+          <Pressable onPress={playPause} style={[styles.playButton, isKD && styles.kdPlay]}>
             <Text style={styles.playText}>{playing ? "Ⅱ" : "▶"}</Text>
           </Pressable>
 
-          <Pressable style={styles.iconButton}>
+          <Pressable onPress={nextTrack} style={styles.iconButton}>
             <Text style={styles.icon}>⏭</Text>
           </Pressable>
 
-          <Pressable onPress={() => setLiked(!liked)} style={styles.iconButton}>
-            <Text style={[styles.icon, liked && styles.starOn]}>
-              {liked ? "★" : "☆"}
-            </Text>
+          <Pressable onPress={toggleLike} style={styles.iconButton}>
+            <Text style={[styles.icon, liked && styles.starOn]}>{liked ? "★" : "☆"}</Text>
           </Pressable>
         </View>
 
@@ -122,216 +144,43 @@ export default function Player() {
           <Text style={styles.tab}>Queue</Text>
         </View>
 
-        {isKD && <Text style={styles.tagline}>VINYL THERAPY NEVER DIES</Text>}
+        {isKD && <Text style={styles.tagline}>MUSIC THERAPY NEVER DIES</Text>}
       </SafeAreaView>
     </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  dimmer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(8,0,18,0.62)",
-  },
-  safe: {
-    flex: 1,
-    paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: 28,
-    alignItems: "center",
-  },
-  topRow: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 22,
-  },
-  backButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  backText: {
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 15,
-  },
-  modeButton: {
-    borderWidth: 1,
-    borderColor: "#39ff14",
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: "rgba(45,20,80,0.8)",
-  },
-  modeText: {
-    color: "#39ff14",
-    fontWeight: "900",
-    fontSize: 15,
-  },
-  menu: {
-    color: "#fff",
-    fontSize: 30,
-    fontWeight: "900",
-  },
-  artWrap: {
-    width: "86%",
-    aspectRatio: 1,
-    borderRadius: 26,
-    overflow: "hidden",
-    marginBottom: 26,
-    backgroundColor: "#101010",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-  },
-  kdGlow: {
-    shadowColor: "#39ff14",
-    shadowOpacity: 0.95,
-    shadowRadius: 26,
-    elevation: 20,
-    borderColor: "rgba(57,255,20,0.7)",
-  },
-  art: {
-    width: "100%",
-    height: "100%",
-  },
-  infoPanel: {
-    width: "100%",
-    borderRadius: 28,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    backgroundColor: "rgba(10,0,20,0.48)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-    marginBottom: 18,
-  },
-  title: {
-    color: "#fff",
-    fontSize: 36,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  kdTitle: {
-    color: "#39ff14",
-    textShadowColor: "rgba(57,255,20,0.95)",
-    textShadowRadius: 14,
-  },
-  artist: {
-    color: "#d9c7ff",
-    fontSize: 21,
-    fontWeight: "800",
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: 22,
-  },
-  progressRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  time: {
-    color: "#eeeeee",
-    fontSize: 13,
-    width: 38,
-    fontWeight: "800",
-  },
-  progressBar: {
-    flex: 1,
-    height: 9,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    overflow: "hidden",
-  },
-  progressFill: {
-    width: "32%",
-    height: "100%",
-    backgroundColor: "#fff",
-  },
-  kdProgress: {
-    backgroundColor: "#39ff14",
-  },
-  controlsGlass: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderRadius: 30,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    marginBottom: 24,
-  },
-  iconButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(15,8,25,0.76)",
-  },
-  icon: {
-    color: "#fff",
-    fontSize: 31,
-    fontWeight: "900",
-  },
-  starOn: {
-    color: "#39ff14",
-    textShadowColor: "rgba(57,255,20,0.95)",
-    textShadowRadius: 10,
-  },
-  playButton: {
-    width: 82,
-    height: 82,
-    borderRadius: 999,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  kdPlay: {
-    backgroundColor: "#39ff14",
-    shadowColor: "#39ff14",
-    shadowOpacity: 1,
-    shadowRadius: 20,
-    elevation: 18,
-  },
-  playText: {
-    color: "#160020",
-    fontSize: 34,
-    fontWeight: "900",
-  },
-  bottomTabs: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.16)",
-    paddingTop: 20,
-  },
-  tabActive: {
-    color: "#39ff14",
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  tab: {
-    color: "#c7b7d8",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  tagline: {
-    marginTop: 22,
-    color: "#39ff14",
-    letterSpacing: 3,
-    fontSize: 11,
-    fontWeight: "900",
-    opacity: 0.9,
-  },
+  bg: { flex: 1, backgroundColor: "#000" },
+  dimmer: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,0,18,0.62)" },
+  safe: { flex: 1, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 46, alignItems: "center" },
+  topRow: { width: "100%", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
+  backButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)" },
+  backText: { color: "#fff", fontWeight: "900", fontSize: 15 },
+  modeButton: { borderWidth: 1, borderColor: "#39ff14", borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: "rgba(45,20,80,0.8)" },
+  modeText: { color: "#39ff14", fontWeight: "900", fontSize: 15 },
+  menu: { color: "#fff", fontSize: 30, fontWeight: "900" },
+  artWrap: { width: "86%", aspectRatio: 1, borderRadius: 26, overflow: "hidden", marginBottom: 26, backgroundColor: "#101010", borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
+  kdGlow: { shadowColor: "#39ff14", shadowOpacity: 0.95, shadowRadius: 26, elevation: 20, borderColor: "rgba(57,255,20,0.7)" },
+  art: { width: "100%", height: "100%" },
+  infoPanel: { width: "100%", borderRadius: 28, paddingHorizontal: 18, paddingVertical: 18, backgroundColor: "rgba(10,0,20,0.48)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", marginBottom: 18 },
+  title: { color: "#fff", fontSize: 36, fontWeight: "900", textAlign: "center" },
+  kdTitle: { color: "#39ff14", textShadowColor: "rgba(57,255,20,0.95)", textShadowRadius: 14 },
+  artist: { color: "#d9c7ff", fontSize: 21, fontWeight: "800", textAlign: "center", marginTop: 4, marginBottom: 22 },
+  progressRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 10 },
+  time: { color: "#eeeeee", fontSize: 13, width: 38, fontWeight: "800" },
+  progressBar: { flex: 1, height: 9, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.25)", overflow: "hidden" },
+  progressFill: { width: "32%", height: "100%", backgroundColor: "#fff" },
+  kdProgress: { backgroundColor: "#39ff14" },
+  controlsGlass: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 30, paddingHorizontal: 12, paddingVertical: 14, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", marginBottom: 24 },
+  iconButton: { width: 50, height: 50, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(15,8,25,0.76)" },
+  icon: { color: "#fff", fontSize: 31, fontWeight: "900" },
+  starOn: { color: "#39ff14", textShadowColor: "rgba(57,255,20,0.95)", textShadowRadius: 10 },
+  playButton: { width: 82, height: 82, borderRadius: 999, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  kdPlay: { backgroundColor: "#39ff14", shadowColor: "#39ff14", shadowOpacity: 1, shadowRadius: 20, elevation: 18 },
+  playText: { color: "#160020", fontSize: 34, fontWeight: "900" },
+  bottomTabs: { width: "100%", flexDirection: "row", justifyContent: "space-around", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.16)", paddingTop: 20 },
+  tabActive: { color: "#39ff14", fontSize: 17, fontWeight: "900" },
+  tab: { color: "#c7b7d8", fontSize: 17, fontWeight: "800" },
+  tagline: { marginTop: 18, marginBottom: 18, color: "#39ff14", letterSpacing: 3, fontSize: 11, fontWeight: "900", opacity: 0.9 },
 });
