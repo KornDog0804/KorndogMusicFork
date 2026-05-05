@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.*
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
@@ -19,8 +18,14 @@ import expo.modules.kotlin.views.ExpoView
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-class NouWebView @JvmOverloads constructor(c: Context, a: AttributeSet? = null, d: Int = 0) : WebView(c, a, d) {
-  override fun onWindowVisibilityChanged(v: Int) { super.onWindowVisibilityChanged(VISIBLE) }
+class NouWebView @JvmOverloads constructor(
+  c: Context,
+  a: AttributeSet? = null,
+  d: Int = 0
+) : WebView(c, a, d) {
+  override fun onWindowVisibilityChanged(v: Int) {
+    super.onWindowVisibilityChanged(VISIBLE)
+  }
 
   init {
     settings.run {
@@ -37,10 +42,11 @@ class NouWebView @JvmOverloads constructor(c: Context, a: AttributeSet? = null, 
       allowFileAccess = true
       allowContentAccess = true
     }
+
     CookieManager.getInstance().setAcceptCookie(true)
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-    isFocusable = true
-    isFocusableInTouchMode = true
+    setFocusable(true)
+    setFocusableInTouchMode(true)
   }
 
   suspend fun eval(s: String): String? = suspendCancellableCoroutine { c ->
@@ -50,32 +56,29 @@ class NouWebView @JvmOverloads constructor(c: Context, a: AttributeSet? = null, 
   }
 }
 
-class NouOrientationListener(c: Context, private val v: NouTubeView) : OrientationEventListener(c) {
-  override fun onOrientationChanged(o: Int) { v.onOrientationChanged(o) }
+class NouOrientationListener(
+  c: Context,
+  private val v: NouTubeView
+) : OrientationEventListener(c) {
+  override fun onOrientationChanged(o: Int) {
+    v.onOrientationChanged(o)
+  }
 }
 
-class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
+class NouTubeView(
+  context: Context,
+  appContext: AppContext
+) : ExpoView(context, appContext) {
 
   private val onLoad by EventDispatcher()
   internal val onMessage by EventDispatcher()
 
   private var scriptOnStart = ""
   private var pageUrl = ""
-
   private var customView: View? = null
   private lateinit var orientationListener: NouOrientationListener
 
   internal val nouCast = NouCast(context)
-
-  private val gestureDetector = GestureDetector(context,
-    object : GestureDetector.SimpleOnGestureListener() {
-      override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy0: Float): Boolean {
-        var dy = dy0
-        if (e1 != null) dy = (e2.y - e1.y) / context.resources.displayMetrics.density
-        emit("scroll", mapOf("dy" to dy, "y" to webView.scrollY))
-        return false
-      }
-    })
 
   private var service: NouService? = null
   private var powerManager: PowerManager? = null
@@ -84,9 +87,30 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
   internal val currentActivity: Activity?
     get() = appContext.activityProvider?.currentActivity
 
-  internal val webView: NouWebView = NouWebView(context).apply {
+  private val gestureDetector = GestureDetector(
+    context,
+    object : GestureDetector.SimpleOnGestureListener() {
+      override fun onScroll(
+        e1: MotionEvent?,
+        e2: MotionEvent,
+        dx: Float,
+        dy0: Float
+      ): Boolean {
+        var dy = dy0
+        if (e1 != null) {
+          dy = (e2.y - e1.y) / context.resources.displayMetrics.density
+        }
+        emit("scroll", mapOf("dy" to dy, "y" to webView.scrollY))
+        return false
+      }
+    }
+  )
 
-    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+  internal val webView: NouWebView = NouWebView(context).apply {
+    layoutParams = LayoutParams(
+      LayoutParams.MATCH_PARENT,
+      LayoutParams.MATCH_PARENT
+    )
 
     setOnTouchListener { _, e ->
       gestureDetector.onTouchEvent(e)
@@ -94,8 +118,11 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
 
     webViewClient = object : WebViewClient() {
-
-      override fun doUpdateVisitedHistory(v: WebView, u: String, isReload: Boolean) {
+      override fun doUpdateVisitedHistory(
+        v: WebView,
+        u: String,
+        isReload: Boolean
+      ) {
         if (pageUrl != u) {
           pageUrl = u
           onLoad(mapOf("url" to pageUrl))
@@ -112,20 +139,117 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
         evaluateJavascript(KORNDOG_SYNCED_LYRICS_SCRIPT, null)
       }
 
+      override fun shouldInterceptRequest(
+        v: WebView,
+        r: WebResourceRequest
+      ): WebResourceResponse? = null
+
       override fun shouldOverrideUrlLoading(v: WebView, u: String): Boolean {
-        val uri = Uri.parse(u)
+        val uri = android.net.Uri.parse(u)
+
         return if (
-          uri.host?.contains("youtube.com") == true ||
-          uri.host?.contains("google.com") == true
-        ) false
-        else {
+          uri.host in VIEW_HOSTS ||
+          uri.host?.startsWith("accounts.google.") == true ||
+          uri.host?.startsWith("gds.google.") == true ||
+          uri.host?.endsWith(".youtube.com") == true
+        ) {
+          false
+        } else {
           v.context.startActivity(Intent(Intent.ACTION_VIEW, uri))
           true
         }
       }
     }
 
-    webChromeClient = object : WebChromeClient() {}
+    webChromeClient = object : WebChromeClient() {
+      override fun onPermissionRequest(r: PermissionRequest) {
+        val a = currentActivity
+
+        if (a == null) {
+          r.deny()
+          return
+        }
+
+        val ps = mutableListOf<String>()
+
+        if (r.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+          ps.add(android.Manifest.permission.RECORD_AUDIO)
+        }
+
+        if (r.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+          ps.add(android.Manifest.permission.CAMERA)
+        }
+
+        if (ps.isEmpty()) {
+          r.grant(r.resources)
+          return
+        }
+
+        a.requestPermissions(ps.toTypedArray(), 101)
+        r.grant(r.resources)
+      }
+
+      override fun onJsBeforeUnload(
+        v: WebView,
+        u: String,
+        m: String,
+        res: JsResult
+      ): Boolean {
+        res.confirm()
+        return true
+      }
+
+      override fun onShowCustomView(v: View, cb: CustomViewCallback) {
+        customView = v
+        v.keepScreenOn = true
+
+        val a = currentActivity ?: return
+        val w = a.window
+
+        (w.decorView as FrameLayout).addView(
+          v,
+          FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+          )
+        )
+
+        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
+        val c = WindowCompat.getInsetsController(w, w.decorView)
+        c.hide(WindowInsetsCompat.Type.systemBars())
+        c.systemBarsBehavior =
+          WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+        if (
+          Settings.System.getInt(
+            a.contentResolver,
+            Settings.System.ACCELEROMETER_ROTATION,
+            0
+          ) == 1
+        ) {
+          orientationListener.enable()
+        }
+      }
+
+      override fun onHideCustomView() {
+        val a = currentActivity ?: return
+        val w = a.window
+
+        (w.decorView as FrameLayout).removeView(customView)
+        customView?.keepScreenOn = false
+        customView = null
+
+        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
+
+        val c = WindowCompat.getInsetsController(w, w.decorView)
+        c.show(WindowInsetsCompat.Type.systemBars())
+        c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+
+        this@apply.requestFocus()
+        orientationListener.disable()
+      }
+    }
   }
 
   init {
@@ -133,98 +257,135 @@ class NouTubeView(context: Context, appContext: AppContext) : ExpoView(context, 
     initService()
     initWakeLock()
 
+    currentActivity?.registerForContextMenu(webView)
     webView.addJavascriptInterface(NouJsInterface(context, this), "NouTubeI")
+
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, _ ->
+      WindowInsetsCompat.CONSUMED
+    }
+  }
+
+  override fun onCreateContextMenu(menu: ContextMenu) {
+    super.onCreateContextMenu(menu)
+
+    val r = webView.hitTestResult
+    val a = currentActivity
+    var u: String? = null
+
+    if (r.type == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
+      u = r.extra
+    } else if (r.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+      val h = webView.handler.obtainMessage()
+      webView.requestFocusNodeHref(h)
+      u = h.data?.getString("url")
+    }
+
+    if (u != null && a != null) {
+      menu.add("Copy link").setOnMenuItemClickListener {
+        val cm = a.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("link", u))
+        true
+      }
+    }
   }
 
   private fun initWakeLock() {
-    powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NouTube::Wake")
+    powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager?
+    wakeLock = powerManager?.newWakeLock(
+      PowerManager.PARTIAL_WAKE_LOCK,
+      "NouTube::PlaybackWakeLock"
+    )
   }
 
   fun initService() {
     val a = currentActivity ?: return
+
     val conn = object : ServiceConnection {
       override fun onServiceConnected(n: ComponentName, b: IBinder) {
         val nb = b as NouService.NouBinder
         service = nb.getService()
         service?.initialize(webView, a)
+        nouController.service = service
+        nouController.applyPendingSleepTimer()
       }
+
       override fun onServiceDisconnected(n: ComponentName) {}
     }
 
     val i = Intent(a, NouService::class.java)
+
+    androidx.core.content.ContextCompat.startForegroundService(a, i)
     a.bindService(i, conn, Context.BIND_AUTO_CREATE)
+
     orientationListener = NouOrientationListener(a, this)
+  }
+
+  fun setScriptOnStart(s: String) {
+    scriptOnStart = s
+  }
+
+  fun clearData() {
+    val cm = CookieManager.getInstance()
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+      cm.removeAllCookies(null)
+    } else {
+      @Suppress("DEPRECATION")
+      cm.removeAllCookie()
+    }
+
+    cm.flush()
+    webView.clearCache(true)
+    webView.clearHistory()
+    webView.clearFormData()
+    webView.reload()
   }
 
   fun emit(t: String, d: Any) {
     onMessage(mapOf("payload" to mapOf("type" to t, "data" to d)))
   }
 
-  fun onOrientationChanged(o: Int) {}
+  fun notify(t: String, a: String, s: Long, th: String) {
+    service?.notify(t, a, s, th)
+  }
+
+  fun notifyProgress(p: Boolean, pos: Long) {
+    service?.notifyProgress(p, pos)
+
+    currentActivity?.runOnUiThread {
+      webView.keepScreenOn = p
+      customView?.keepScreenOn = p
+
+      if (p && wakeLock != null && !wakeLock!!.isHeld) {
+        try {
+          wakeLock!!.acquire(60 * 60 * 1000L)
+        } catch (_: Exception) {}
+      } else if (!p && wakeLock != null && wakeLock!!.isHeld) {
+        try {
+          wakeLock!!.release()
+        } catch (_: Exception) {}
+      }
+    }
+  }
+
+  fun onOrientationChanged(o: Int) {
+    val a = currentActivity
+
+    if (
+      a?.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE &&
+      (o in 70..110 || o in 250..290)
+    ) {
+      a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
+    }
+  }
 
   fun getPageUrl(): String = pageUrl
+
+  fun exit() {
+    service?.exit()
+
+    if (wakeLock != null && wakeLock!!.isHeld) {
+      wakeLock!!.release()
+    }
+  }
 }
-
-/* ========================= */
-/* 🔥 KORNDOG DUAL BUTTONS 🔥 */
-/* ========================= */
-
-private val KORNDOG_CAST_SCRIPT = """
-(function () {
-  if (window.__korndogDualInstalled) return;
-  window.__korndogDualInstalled = true;
-
-  function getTrack() {
-    try {
-      const q = JSON.parse(localStorage.getItem("korndog_queue") || "[]");
-      if (q.length) return q[q.length - 1];
-    } catch (e) {}
-
-    return {
-      title: document.querySelector(".title")?.innerText || "",
-      artist: document.querySelector(".subtitle")?.innerText || "",
-      thumb: document.querySelector("img")?.src || ""
-    };
-  }
-
-  function go(type) {
-    const t = getTrack();
-    const base = type === "stream"
-      ? "https://korndogrecords.com/korndog-streaming-generator.html"
-      : "https://korndogrecords.com/korndog-spinning-generator.html";
-
-    const url = base +
-      "?title=" + encodeURIComponent(t.title) +
-      "&artist=" + encodeURIComponent(t.artist) +
-      "&thumb=" + encodeURIComponent(t.thumb);
-
-    window.location.href = url;
-  }
-
-  function btn(emoji, bottom, color, type) {
-    const b = document.createElement("button");
-    b.innerText = emoji;
-    b.style.cssText = `
-      position:fixed;
-      right:20px;
-      bottom:${bottom}px;
-      width:56px;
-      height:56px;
-      border-radius:50%;
-      border:2px solid ${color};
-      background:#12001c;
-      color:white;
-      font-size:24px;
-      z-index:999999;
-      box-shadow:0 0 15px ${color};
-    `;
-    b.onclick = () => go(type);
-    document.body.appendChild(b);
-  }
-
-  btn("📺", 90, "#39ff14", "vinyl");
-  btn("🎧", 160, "#b000ff", "stream");
-
-})();
-""".trimIndent()
