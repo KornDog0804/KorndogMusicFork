@@ -156,6 +156,8 @@ function theme(){
 theme();
 setInterval(theme,2500);
 
+var STREAMING_BACKGROUND='https://korndogrecords.com/images/file_000000004368722fb87de060d4ab9f9f.png';
+
 function latestTrack(){
   try{
     var q=JSON.parse(localStorage.getItem('korndog_queue')||'[]');
@@ -170,16 +172,34 @@ function openGen(type){
     var song=latestTrack();
     var p=new URLSearchParams();
 
+    var sourceName = type === 'stream' ? 'YouTube Music' : 'GhostKernel';
+
     p.set('from','ghostkernel');
+    p.set('source',sourceName);
+    p.set('musicSource',sourceName);
+    p.set('mode',type);
+
+    if(type === 'stream'){
+      p.set('background',STREAMING_BACKGROUND);
+      p.set('bg',STREAMING_BACKGROUND);
+      p.set('posterBg',STREAMING_BACKGROUND);
+    }
 
     if(song.artist)p.set('artist',song.artist);
 
     if(song.title){
       p.set('title',song.title);
       p.set('album',song.title);
+      p.set('track',song.title);
+      p.set('song',song.title);
     }
 
-    if(song.thumb)p.set('thumb',song.thumb);
+    if(song.thumb){
+      p.set('thumb',song.thumb);
+      p.set('art',song.thumb);
+      p.set('albumArt',song.thumb);
+      p.set('cover',song.thumb);
+    }
 
     var base = type === 'stream'
       ? 'https://korndogrecords.com/korndog-streaming-generator.html'
