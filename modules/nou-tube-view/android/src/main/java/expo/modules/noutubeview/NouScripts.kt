@@ -18,13 +18,6 @@ function clean(t){
     .trim();
 }
 
-function cleanAlbum(t){
-  return(t||'')
-    .replace(/\s+/g,' ')
-    .replace(/Explicit|Album|Song|Video/g,'')
-    .trim();
-}
-
 function up(u){
   if(!u)return'';
   return u
@@ -71,57 +64,8 @@ function thumb(){
   return a.length&&a[0].thumb?a[0].thumb:'';
 }
 
-function albumFromDom(title,artist){
-  var candidates=[];
-
-  var selectors=[
-    'ytmusic-player-page .subtitle',
-    '.content-info-wrapper .subtitle',
-    'ytmusic-player-bar .subtitle',
-    'ytmusic-player-page ytmusic-description-shelf-renderer',
-    'ytmusic-player-page .description',
-    'yt-formatted-string.subtitle'
-  ];
-
-  for(var i=0;i<selectors.length;i++){
-    var nodes=document.querySelectorAll(selectors[i]);
-    for(var n=0;n<nodes.length;n++){
-      var raw=(nodes[n].innerText||nodes[n].textContent||'').trim();
-      if(raw)candidates.push(raw);
-    }
-  }
-
-  for(var c=0;c<candidates.length;c++){
-    var raw=candidates[c].replace(/\n/g,' • ').replace(/\s+/g,' ').trim();
-
-    if(raw.indexOf(' • ')>-1){
-      var parts=raw.split(' • ').map(function(p){return cleanAlbum(p)}).filter(Boolean);
-
-      for(var p=0;p<parts.length;p++){
-        var part=parts[p];
-
-        if(!part)continue;
-        if(title&&part.toLowerCase()===title.toLowerCase())continue;
-        if(artist&&part.toLowerCase()===artist.toLowerCase())continue;
-        if(/^[0-9]{4}$/.test(part))continue;
-        if(/views|likes|songs?|videos?|playlist|radio/i.test(part))continue;
-
-        if(p>0)return part;
-      }
-    }
-  }
-
-  var metaAlbum=document.querySelector('meta[itemprop="inAlbum"],meta[property="music:album"]');
-  if(metaAlbum&&metaAlbum.content){
-    var ma=cleanAlbum(metaAlbum.content);
-    if(ma&&ma.toLowerCase()!==title.toLowerCase())return ma;
-  }
-
-  return '';
-}
-
 function info(){
-  var title='',artist='',album='',seconds=0,m=media();
+  var title='',artist='',seconds=0,m=media();
 
   if(m&&isFinite(m.duration))seconds=Math.floor(m.duration||0);
 
@@ -143,15 +87,10 @@ function info(){
   if(artist.indexOf(' • ')>-1)artist=artist.split(' • ')[0].trim();
   if(artist.indexOf(' - ')>-1)artist=artist.split(' - ')[0].trim();
 
-  album=albumFromDom(title,artist);
-
-  if(album&&title&&album.toLowerCase()===title.toLowerCase())album='';
-  if(album&&artist&&album.toLowerCase()===artist.toLowerCase())album='';
-
   return{
     title:title,
     artist:artist,
-    album:album,
+    album:'',
     thumb:thumb(),
     seconds:seconds
   };
@@ -193,11 +132,13 @@ function add(i){
   var a=q();
 
   if(a.length&&a[0].title===i.title&&a[0].artist===i.artist){
-    if(i.thumb)a[0].thumb=i.thumb;
-    if(i.album)a[0].album=i.album;
+    if(i.thumb){
+      a[0].thumb=i.thumb;
+    }else if(a[0].thumb){
+      i.thumb=a[0].thumb;
+    }
 
-    if(!i.thumb&&a[0].thumb)i.thumb=a[0].thumb;
-    if(!i.album&&a[0].album)i.album=a[0].album;
+    a[0].album='';
 
     save(a);
     send(i);
@@ -207,7 +148,7 @@ function add(i){
   a.unshift({
     title:i.title,
     artist:i.artist,
-    album:i.album||'',
+    album:'',
     thumb:i.thumb||'',
     played:Date.now()
   });
@@ -265,7 +206,7 @@ function theme(){
 theme();
 setInterval(theme,2500);
 
-var STREAMING_BACKGROUND='https://korndogrecords.com/images/file_000000004368722fb87de060d4ab9f9f.png';
+var STREAMING_BACKGROUND='https://korndogrecords.com/images/korndog-streaming-template-blank.png';
 
 function latestTrack(){
   try{
@@ -300,12 +241,6 @@ function openGen(type){
       p.set('title',song.title);
       p.set('track',song.title);
       p.set('song',song.title);
-    }
-
-    if(song.album && song.album !== song.title){
-      p.set('album',song.album);
-      p.set('albumName',song.album);
-      p.set('albumTitle',song.album);
     }
 
     if(song.thumb){
