@@ -189,6 +189,81 @@ setTimeout(tick,5000);
 })();
 """.trimIndent()
 
+val KORNDOG_CLICKABLE_PLAYER_SCRIPT = """
+(function () {
+  if (window.__korndogClickablePlayerInstalled) return;
+  window.__korndogClickablePlayerInstalled = true;
+
+  function cleanText(v) {
+    return (v || "").replace(/\s+/g, " ").trim();
+  }
+
+  function getTrackData() {
+    let title =
+      document.querySelector(".title.ytmusic-player-bar")?.innerText ||
+      document.querySelector("ytmusic-player-bar .title")?.innerText ||
+      "";
+
+    let artist =
+      document.querySelector(".subtitle.ytmusic-player-bar")?.innerText ||
+      document.querySelector("ytmusic-player-bar .subtitle")?.innerText ||
+      "";
+
+    title = cleanText(title);
+    artist = cleanText(artist).split("•")[0].trim();
+
+    return { title, artist };
+  }
+
+  function goArtist() {
+    const data = getTrackData();
+    if (!data.artist) return;
+
+    location.href =
+      "https://music.youtube.com/search?q=" +
+      encodeURIComponent(data.artist);
+  }
+
+  function goAlbumSong() {
+    const data = getTrackData();
+    if (!data.title && !data.artist) return;
+
+    location.href =
+      "https://music.youtube.com/search?q=" +
+      encodeURIComponent(data.artist + " " + data.title + " album");
+  }
+
+  function wireClicks() {
+    const titleEl =
+      document.querySelector(".title.ytmusic-player-bar") ||
+      document.querySelector("ytmusic-player-bar .title");
+
+    const artistEl =
+      document.querySelector(".subtitle.ytmusic-player-bar") ||
+      document.querySelector("ytmusic-player-bar .subtitle");
+
+    if (titleEl && !titleEl.dataset.korndogClickable) {
+      titleEl.dataset.korndogClickable = "true";
+      titleEl.style.cursor = "pointer";
+      titleEl.style.textDecoration = "underline";
+      titleEl.style.textDecorationColor = "#39ff14";
+      titleEl.onclick = goAlbumSong;
+    }
+
+    if (artistEl && !artistEl.dataset.korndogClickable) {
+      artistEl.dataset.korndogClickable = "true";
+      artistEl.style.cursor = "pointer";
+      artistEl.style.textDecoration = "underline";
+      artistEl.style.textDecorationColor = "#b000ff";
+      artistEl.onclick = goArtist;
+    }
+  }
+
+  wireClicks();
+  setInterval(wireClicks, 1500);
+})();
+"""
+
 val KORNDOG_CAST_SCRIPT = """
 (function(){
 function theme(){
