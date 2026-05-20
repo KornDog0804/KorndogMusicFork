@@ -133,11 +133,12 @@ class NouTubeView(
         evaluateJavascript(scriptOnStart, null)
       }
 
-      override fun onPageFinished(v: WebView, u: String) {
-        evaluateJavascript(KORNDOG_CAST_SCRIPT, null)
-        evaluateJavascript(KORNDOG_QUEUE_TRACKER_SCRIPT, null)
-        evaluateJavascript(KORNDOG_SYNCED_LYRICS_SCRIPT, null)
-      }
+    override fun onPageFinished(v:WebView,u:String){
+  evaluateJavascript(KORNDOG_CAST_SCRIPT,null);
+  evaluateJavascript(KORNDOG_QUEUE_TRACKER_SCRIPT,null);
+  evaluateJavascript(KORNDOG_SYNCED_LYRICS_SCRIPT,null);
+  evaluateJavascript(KORNDOG_CLICKABLE_PLAYER_SCRIPT,null)
+}
 
       override fun shouldInterceptRequest(
         v: WebView,
