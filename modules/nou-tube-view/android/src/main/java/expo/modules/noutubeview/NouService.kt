@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import kotlinx.coroutines.*
@@ -33,6 +34,11 @@ class NouService : Service() {
   private var defaultArtwork: Bitmap? = null
   private var lastThumbUrl = ""
 
+  private var pendingTitle = ""
+  private var pendingArtist = ""
+  private var pendingThumb = ""
+  private var pendingSince = 0L
+
   private var notificationManager: NotificationManager? = null
   private var audioManager: AudioManager? = null
   private var audioFocusRequest: AudioFocusRequest? = null
@@ -46,6 +52,7 @@ class NouService : Service() {
     private const val TAG = "NouService"
     private const val CHANNEL_ID = "noutube_playback"
     private const val NOTIFICATION_ID = 1
+
     private const val ACTION_PLAY = "expo.modules.noutubeview.PLAY"
     private const val ACTION_PAUSE = "expo.modules.noutubeview.PAUSE"
     private const val ACTION_NEXT = "expo.modules.noutubeview.NEXT"
@@ -119,6 +126,10 @@ class NouService : Service() {
       override fun onSkipToPrevious() { previousFromControl() }
       override fun onSeekTo(pos: Long) { seekFromControl(pos) }
 
+      override fun onSetRating(rating: RatingCompat?) {
+        likeFromControl()
+      }
+
       override fun onCustomAction(action: String?, extras: Bundle?) {
         when (action) {
           ACTION_LIKE -> likeFromControl()
@@ -150,6 +161,7 @@ class NouService : Service() {
   private fun nextFromControl() {
     if (!controlAllowed()) return
     userPausedFromControls = false
+    resetPendingTrack()
     runPlayerJs(nextJs())
     isPlaying = true
     updateAll()
@@ -158,6 +170,7 @@ class NouService : Service() {
   private fun previousFromControl() {
     if (!controlAllowed()) return
     userPausedFromControls = false
+    resetPendingTrack()
     runPlayerJs(previousJs())
     isPlaying = true
     updateAll()
@@ -216,8 +229,7 @@ class NouService : Service() {
           if(p&&p.catch)p.catch(function(){});
           return true;
         }
-        var bar=document.querySelector('ytmusic-player-bar');
-        var btn=bar&&(bar.querySelector('tp-yt-paper-icon-button[title="Play"]')||bar.querySelector('button[aria-label="Play"]')||bar.querySelector('[aria-label="Play"]'));
+        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Play"], ytmusic-player-bar [title="Play"], button[aria-label="Play"], [aria-label="Play"]');
         if(btn){btn.click();return true;}
       }catch(e){}
       return false;
@@ -235,8 +247,7 @@ class NouService : Service() {
           media.pause();
           return true;
         }
-        var bar=document.querySelector('ytmusic-player-bar');
-        var btn=bar&&(bar.querySelector('tp-yt-paper-icon-button[title="Pause"]')||bar.querySelector('button[aria-label="Pause"]')||bar.querySelector('[aria-label="Pause"]'));
+        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Pause"], ytmusic-player-bar [title="Pause"], button[aria-label="Pause"], [aria-label="Pause"]');
         if(btn){btn.click();return true;}
       }catch(e){}
       return false;
@@ -249,9 +260,7 @@ class NouService : Service() {
         window._kdUserPaused=false;
         window._kdShouldBePlaying=true;
         localStorage.setItem('kd_user_paused','false');
-        var bar=document.querySelector('ytmusic-player-bar');
-        if(!bar)return false;
-        var btn=bar.querySelector('tp-yt-paper-icon-button[title="Next"]')||bar.querySelector('button[aria-label="Next"]')||bar.querySelector('[aria-label="Next"]');
+        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Next"], ytmusic-player-bar [title="Next"], button[aria-label="Next"], [aria-label="Next"]');
         if(btn){btn.click();return true;}
       }catch(e){}
       return false;
@@ -264,9 +273,7 @@ class NouService : Service() {
         window._kdUserPaused=false;
         window._kdShouldBePlaying=true;
         localStorage.setItem('kd_user_paused','false');
-        var bar=document.querySelector('ytmusic-player-bar');
-        if(!bar)return false;
-        var btn=bar.querySelector('tp-yt-paper-icon-button[title="Previous"]')||bar.querySelector('button[aria-label="Previous"]')||bar.querySelector('[aria-label="Previous"]');
+        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Previous"], ytmusic-player-bar [title="Previous"], button[aria-label="Previous"], [aria-label="Previous"]');
         if(btn){btn.click();return true;}
       }catch(e){}
       return false;
@@ -277,14 +284,30 @@ class NouService : Service() {
     (function(){
       try{
         var selectors=[
+          'ytmusic-player-bar button[aria-label*="Add to liked songs"]',
+          'ytmusic-player-bar button[aria-label*="Remove from liked songs"]',
+          'ytmusic-player-bar [aria-label*="Add to liked songs"]',
+          'ytmusic-player-bar [aria-label*="Remove from liked songs"]',
+          'ytmusic-player-bar button[aria-label*="Like"]',
+          'ytmusic-player-bar button[aria-label*="like"]',
+          'ytmusic-player-bar [aria-label*="Like"]',
+          'ytmusic-player-bar [aria-label*="like"]',
+          'button[aria-label*="Add to liked songs"]',
+          'button[aria-label*="Remove from liked songs"]',
+          '[aria-label*="Add to liked songs"]',
+          '[aria-label*="Remove from liked songs"]',
           'button[aria-label*="Like"]',
           'button[aria-label*="like"]',
           '[aria-label*="Like"]',
           '[aria-label*="like"]'
         ];
+
         for(var i=0;i<selectors.length;i++){
           var btn=document.querySelector(selectors[i]);
-          if(btn){btn.click();return true;}
+          if(btn){
+            btn.click();
+            return true;
+          }
         }
       }catch(e){}
       return false;
@@ -295,6 +318,8 @@ class NouService : Service() {
     (function(){
       try{
         var selectors=[
+          'ytmusic-player-bar button[aria-label*="Shuffle"]',
+          'ytmusic-player-bar [aria-label*="Shuffle"]',
           'button[aria-label*="Shuffle"]',
           'button[aria-label*="shuffle"]',
           '[aria-label*="Shuffle"]',
@@ -412,6 +437,7 @@ class NouService : Service() {
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentArtist)
       .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, currentDuration)
+      .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(isLiked))
 
     artwork?.let {
       builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
@@ -436,20 +462,14 @@ class NouService : Service() {
           PlaybackStateCompat.ACTION_PLAY_PAUSE or
           PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
           PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-          PlaybackStateCompat.ACTION_SEEK_TO
+          PlaybackStateCompat.ACTION_SEEK_TO or
+          PlaybackStateCompat.ACTION_SET_RATING
       )
       .addCustomAction(
         PlaybackStateCompat.CustomAction.Builder(
           ACTION_LIKE,
           likeTitle,
           likeIcon
-        ).build()
-      )
-      .addCustomAction(
-        PlaybackStateCompat.CustomAction.Builder(
-          ACTION_SHUFFLE,
-          "Shuffle",
-          android.R.drawable.ic_menu_rotate
         ).build()
       )
       .setState(state, currentPosition, 1f, SystemClock.elapsedRealtime())
@@ -460,8 +480,38 @@ class NouService : Service() {
   }
 
   fun notify(title: String, author: String, seconds: Long, thumbnail: String) {
-    currentTitle = title.ifBlank { "Now Playing" }
-    currentArtist = author.ifBlank { "NouTube" }
+    val cleanTitle = cleanTitle(title)
+    val cleanArtist = cleanArtist(author)
+
+    if (cleanTitle.isBlank() || cleanArtist.isBlank()) {
+      return
+    }
+
+    val incomingKey = "$cleanTitle|$cleanArtist|$thumbnail"
+    val currentKey = "$currentTitle|$currentArtist|$lastThumbUrl"
+
+    if (incomingKey != currentKey) {
+      val pendingKey = "$pendingTitle|$pendingArtist|$pendingThumb"
+
+      if (incomingKey != pendingKey) {
+        pendingTitle = cleanTitle
+        pendingArtist = cleanArtist
+        pendingThumb = thumbnail
+        pendingSince = SystemClock.elapsedRealtime()
+        return
+      }
+
+      if (SystemClock.elapsedRealtime() - pendingSince < 900L) {
+        return
+      }
+    }
+
+    currentTitle = cleanTitle
+    currentArtist = cleanArtist
+    pendingTitle = ""
+    pendingArtist = ""
+    pendingThumb = ""
+    pendingSince = 0L
 
     currentDuration = if (seconds > 0L) {
       seconds * 1000L
@@ -502,6 +552,34 @@ class NouService : Service() {
     updateAll()
   }
 
+  private fun resetPendingTrack() {
+    pendingTitle = ""
+    pendingArtist = ""
+    pendingThumb = ""
+    pendingSince = 0L
+  }
+
+  private fun cleanTitle(value: String): String {
+    return value
+      .replace(Regex("\\s+"), " ")
+      .replace("Official Video", "", ignoreCase = true)
+      .replace("Official Audio", "", ignoreCase = true)
+      .replace("Music Video", "", ignoreCase = true)
+      .trim()
+  }
+
+  private fun cleanArtist(value: String): String {
+    var out = value
+      .replace(Regex("\\s+"), " ")
+      .replace(" - Topic", "", ignoreCase = true)
+      .trim()
+
+    if (out.contains(" • ")) out = out.split(" • ")[0].trim()
+    if (out.contains(" · ")) out = out.split(" · ")[0].trim()
+
+    return out
+  }
+
   private fun loadArtworkAsync(url: String) {
     scope.launch(Dispatchers.IO) {
       val bitmap = try {
@@ -522,26 +600,26 @@ class NouService : Service() {
     return try {
       val possibleNames = listOf(
         "adaptive_icon",
+        "adaptive_icon_foreground",
         "icon",
         "ic_launcher",
         "ic_launcher_foreground",
-        "mipmap/ic_launcher",
-        "mipmap/ic_launcher_foreground"
+        "ic_launcher_round",
+        "notification_icon"
       )
 
       var drawable: Drawable? = null
 
-      for (name in possibleNames) {
-        val parts = name.split("/")
-        val resType = if (parts.size == 2) parts[0] else "drawable"
-        val resName = if (parts.size == 2) parts[1] else name
-        val id = resources.getIdentifier(resName, resType, packageName)
-
-        if (id != 0) {
-          drawable = resources.getDrawable(id, theme)
-          Log.d(TAG, "Loaded default artwork resource: $resType/$resName")
-          break
+      for (resType in listOf("mipmap", "drawable")) {
+        for (name in possibleNames) {
+          val id = resources.getIdentifier(name, resType, packageName)
+          if (id != 0) {
+            drawable = resources.getDrawable(id, theme)
+            Log.d(TAG, "Loaded default artwork resource: $resType/$name")
+            break
+          }
         }
+        if (drawable != null) break
       }
 
       if (drawable == null) {
@@ -549,18 +627,49 @@ class NouService : Service() {
         Log.d(TAG, "Loaded default artwork from applicationInfo icon")
       }
 
-      val size = 512
-      val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-      val canvas = Canvas(bitmap)
-
-      drawable.setBounds(0, 0, size, size)
-      drawable.draw(canvas)
-
-      bitmap
+      drawableToBitmap(drawable)
     } catch (e: Exception) {
       Log.e(TAG, "Default artwork load failed", e)
-      null
+      generateFallbackLogo()
     }
+  }
+
+  private fun drawableToBitmap(drawable: Drawable): Bitmap {
+    val size = 512
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    drawable.setBounds(0, 0, size, size)
+    drawable.draw(canvas)
+    return bitmap
+  }
+
+  private fun generateFallbackLogo(): Bitmap {
+    val size = 512
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(18, 0, 32)
+    }
+
+    val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(57, 255, 20)
+      style = Paint.Style.STROKE
+      strokeWidth = 18f
+    }
+
+    val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.rgb(57, 255, 20)
+      textSize = 138f
+      textAlign = Paint.Align.CENTER
+      typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+
+    canvas.drawCircle(size / 2f, size / 2f, 226f, bg)
+    canvas.drawCircle(size / 2f, size / 2f, 220f, ring)
+    canvas.drawText("KD", size / 2f, size / 2f + 48f, text)
+
+    return bitmap
   }
 
   private fun makeBrandedArtwork(albumArt: Bitmap?, logo: Bitmap?): Bitmap? {
@@ -572,26 +681,31 @@ class NouService : Service() {
     canvas.drawBitmap(base, null, Rect(0, 0, size, size), null)
 
     if (albumArt != null && logo != null) {
-      val logoSize = 128
-      val padding = 18
+      val logoSize = 150
+      val padding = 16
       val left = size - logoSize - padding
       val top = padding
       val logoRect = Rect(left, top, left + logoSize, top + logoSize)
 
+      val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(160, 0, 0, 0)
+      }
+
       val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(215, 18, 0, 32)
+        color = Color.argb(230, 18, 0, 32)
       }
 
       val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(245, 57, 255, 20)
+        color = Color.argb(255, 57, 255, 20)
         style = Paint.Style.STROKE
-        strokeWidth = 6f
+        strokeWidth = 7f
       }
 
       val cx = left + logoSize / 2f
       val cy = top + logoSize / 2f
-      val radius = logoSize / 2f + 9f
+      val radius = logoSize / 2f + 10f
 
+      canvas.drawCircle(cx + 3f, cy + 5f, radius + 2f, shadowPaint)
       canvas.drawCircle(cx, cy, radius, bgPaint)
       canvas.drawCircle(cx, cy, radius, ringPaint)
       canvas.drawBitmap(logo, null, logoRect, null)
