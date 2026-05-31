@@ -19,6 +19,7 @@ internal class NouYtDlp(private val context: Context) {
     @Volatile private var ffmpegInitialized = false
 
     private const val DOWNLOAD_RELATIVE_PATH = "Music Folder/NouTube"
+    private const val AUDIO_FORMAT_ID = "bestaudio[ext=m4a]/bestaudio"
   }
 
   data class DownloadResult(
@@ -61,56 +62,21 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--no-playlist")
     request.addOption("-R", "1")
     request.addOption("--socket-timeout", "15")
-    request.addOption(
-      "-f",
-      "best[ext=mp4][height<=720]/best[ext=mp4][height<=1080]/best[ext=mp4]/bestaudio[ext=m4a]/bestaudio/best"
-    )
+    request.addOption("-f", AUDIO_FORMAT_ID)
 
     val response = YoutubeDL.getInstance().execute(request)
     val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty output"))
 
-    val title = json.optString("title", "NouTube Video")
+    val title = json.optString("title", "NouTube Audio")
     val directUrl = json.optString("url", "")
 
     if (directUrl.isNotEmpty()) {
-      Log.d("NouYtDlp", "Got direct URL for: $title")
+      Log.d("NouYtDlp", "Got direct audio URL for: $title")
       return mapOf("url" to directUrl, "title" to title)
     }
 
     val formats = json.optJSONArray("formats")
     if (formats != null) {
-      var bestCombinedUrl = ""
-      var bestHeight = 0
-
-      for (i in 0 until formats.length()) {
-        val fmt = formats.optJSONObject(i) ?: continue
-        val vcodec = fmt.optString("vcodec", "none")
-        val acodec = fmt.optString("acodec", "none")
-        val ext = fmt.optString("ext", "")
-        val height = fmt.optInt("height", 0)
-        val url = fmt.optString("url", "")
-        val protocol = fmt.optString("protocol", "")
-
-        if (protocol.contains("dash") || protocol.contains("m3u8")) continue
-
-        if (
-          vcodec != "none" &&
-          acodec != "none" &&
-          ext == "mp4" &&
-          height in 1..720 &&
-          url.isNotEmpty() &&
-          height > bestHeight
-        ) {
-          bestCombinedUrl = url
-          bestHeight = height
-        }
-      }
-
-      if (bestCombinedUrl.isNotEmpty()) {
-        Log.d("NouYtDlp", "Using combined mp4 ${bestHeight}p")
-        return mapOf("url" to bestCombinedUrl, "title" to title)
-      }
-
       var bestAudioUrl = ""
       var bestAbr = -1
 
@@ -144,17 +110,25 @@ internal class NouYtDlp(private val context: Context) {
 
       for (i in formats.length() - 1 downTo 0) {
         val fmt = formats.optJSONObject(i) ?: continue
+        val acodec = fmt.optString("acodec", "none")
+        val vcodec = fmt.optString("vcodec", "none")
         val url = fmt.optString("url", "")
         val protocol = fmt.optString("protocol", "")
 
-        if (url.isNotEmpty() && !protocol.contains("dash") && !protocol.contains("m3u8")) {
-          Log.d("NouYtDlp", "Using fallback format")
+        if (
+          acodec != "none" &&
+          vcodec == "none" &&
+          url.isNotEmpty() &&
+          !protocol.contains("dash") &&
+          !protocol.contains("m3u8")
+        ) {
+          Log.d("NouYtDlp", "Using fallback audio format")
           return mapOf("url" to url, "title" to title)
         }
       }
     }
 
-    throw Exception("No DLNA-compatible stream URL found")
+    throw Exception("No audio stream URL found")
   }
 
   fun listFormats(url: String): Map<String, Any> {
@@ -165,60 +139,20 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--no-playlist")
     request.addOption("-R", "1")
     request.addOption("--socket-timeout", "5")
+    request.addOption("-f", AUDIO_FORMAT_ID)
 
     val response = YoutubeDL.getInstance().execute(request)
     val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty format output"))
 
-    val formats = (0 until json.optJSONArray("formats")?.length().orZero())
-      .mapNotNull { index -> json.optJSONArray("formats")?.optJSONObject(index) }
-
     val options = mutableListOf<Map<String, String>>()
 
-    val videoFormats = formats.filter {
-      it.optString("vcodec") != "none" && it.optInt("height", 0) > 0
-    }
-
-    val maxHeight = videoFormats.maxOfOrNull { it.optInt("height", 0) } ?: 0
-
-    if (maxHeight > 1080) {
-      options.add(
-        mapOf(
-          "formatId" to "bestvideo+bestaudio/best",
-          "label" to "Best quality",
-          "description" to "Up to ${maxHeight}p video + audio",
-        )
+    options.add(
+      mapOf(
+        "formatId" to AUDIO_FORMAT_ID,
+        "label" to "Audio only (Best quality)",
+        "description" to "Best available YouTube Music audio with album art",
       )
-    }
-
-    if (videoFormats.any { it.optInt("height", 0) == 1080 }) {
-      options.add(
-        mapOf(
-          "formatId" to "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-          "label" to "1080p",
-          "description" to "1080p video + audio",
-        )
-      )
-    }
-
-    if (videoFormats.any { it.optInt("height", 0) == 720 }) {
-      options.add(
-        mapOf(
-          "formatId" to "bestvideo[height<=720]+bestaudio/best[height<=720]",
-          "label" to "720p",
-          "description" to "720p video + audio",
-        )
-      )
-    }
-
-    if (formats.any { it.optString("vcodec") == "none" && it.optString("acodec") != "none" }) {
-      options.add(
-        mapOf(
-          "formatId" to "bestaudio",
-          "label" to "Audio only (Best original)",
-          "description" to "Best original audio stream with album art",
-        )
-      )
-    }
+    )
 
     return mapOf(
       "title" to json.optString("title"),
@@ -239,16 +173,16 @@ internal class NouYtDlp(private val context: Context) {
     }
 
     val request = YoutubeDLRequest(url)
+    val safeFormatId = if (formatId.isBlank()) AUDIO_FORMAT_ID else formatId
 
-    request.addOption("-f", formatId)
+    request.addOption("-f", safeFormatId)
     request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
     request.addOption("--no-playlist")
-
-    if (!isAudioOnlyFormat(formatId)) {
-      request.addOption("--merge-output-format", "mp4")
-    }
-
+    request.addOption("--extract-audio")
+    request.addOption("--audio-format", "m4a")
+    request.addOption("--audio-quality", "0")
     request.addOption("--embed-thumbnail")
+    request.addOption("--convert-thumbnails", "jpg")
     request.addOption("--add-metadata")
     request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
     request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
@@ -263,9 +197,9 @@ internal class NouYtDlp(private val context: Context) {
 
       val outputFile = tempDir
         .listFiles()
-        ?.filter { it.isFile }
+        ?.filter { it.isFile && isPlayableAudioOutput(it) }
         ?.maxByOrNull { it.lastModified() }
-        ?: throw Exception("Download completed but no output file was produced")
+        ?: throw Exception("Download completed but no playable audio file was produced")
 
       val savedUri = publishToDownloads(outputFile)
 
@@ -278,9 +212,11 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
-  private fun isAudioOnlyFormat(formatId: String): Boolean {
-    val f = formatId.lowercase()
-    return f.contains("bestaudio") || f == "ba" || f.contains("audio")
+  private fun isPlayableAudioOutput(file: File): Boolean {
+    return when (file.extension.lowercase()) {
+      "m4a", "mp3", "aac", "opus", "ogg", "flac" -> true
+      else -> false
+    }
   }
 
   fun update() {
