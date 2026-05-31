@@ -18,7 +18,7 @@ internal class NouYtDlp(private val context: Context) {
     @Volatile private var youtubeDLInitialized = false
     @Volatile private var ffmpegInitialized = false
 
-    private const val DOWNLOAD_RELATIVE_PATH = "Music Folder/NouTube"
+    private const val DOWNLOAD_RELATIVE_PATH = "Music/NouTube"
     private const val AUDIO_FORMAT_ID = "bestaudio[ext=m4a]/bestaudio"
   }
 
@@ -201,7 +201,7 @@ internal class NouYtDlp(private val context: Context) {
         ?.maxByOrNull { it.lastModified() }
         ?: throw Exception("Download completed but no playable audio file was produced")
 
-      val savedUri = publishToDownloads(outputFile)
+      val savedUri = publishToMusic(outputFile)
 
       return DownloadResult(
         lastLine = lastLine,
@@ -326,27 +326,28 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
-  private fun publishToDownloads(sourceFile: File): Uri {
+  private fun publishToMusic(sourceFile: File): Uri {
     val extension = sourceFile.extension.lowercase()
     val mimeType = MimeTypeMap.getSingleton()
       .getMimeTypeFromExtension(extension)
       .orEmpty()
 
     val values = ContentValues().apply {
-      put(MediaStore.Downloads.DISPLAY_NAME, sourceFile.name)
+      put(MediaStore.Audio.Media.DISPLAY_NAME, sourceFile.name)
+      put(MediaStore.Audio.Media.TITLE, sourceFile.nameWithoutExtension)
 
       if (mimeType.isNotBlank()) {
-        put(MediaStore.Downloads.MIME_TYPE, mimeType)
+        put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
       }
 
-      put(MediaStore.Downloads.RELATIVE_PATH, DOWNLOAD_RELATIVE_PATH)
-      put(MediaStore.Downloads.IS_PENDING, 1)
+      put(MediaStore.Audio.Media.RELATIVE_PATH, DOWNLOAD_RELATIVE_PATH)
+      put(MediaStore.Audio.Media.IS_PENDING, 1)
     }
 
     val resolver = context.contentResolver
-    val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     val uri = resolver.insert(collection, values)
-      ?: throw Exception("Failed to create download entry")
+      ?: throw Exception("Failed to create audio entry")
 
     try {
       resolver.openOutputStream(uri)?.use { output ->
@@ -356,7 +357,7 @@ internal class NouYtDlp(private val context: Context) {
       } ?: throw Exception("Failed to open MediaStore output stream")
 
       values.clear()
-      values.put(MediaStore.Downloads.IS_PENDING, 0)
+      values.put(MediaStore.Audio.Media.IS_PENDING, 0)
       resolver.update(uri, values, null, null)
 
       return uri
