@@ -14,18 +14,77 @@ import { isAndroid, nIf } from '@/lib/utils'
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'
 
 type Phase = 'idle' | 'loading' | 'choosing' | 'error'
+type DownloadKind = 'song' | 'album' | 'playlist'
+
+function getDownloadKind(targetUrl: string): DownloadKind {
+  const lower = targetUrl.toLowerCase()
+
+  if (lower.includes('playlist') || lower.includes('list=pl') || lower.includes('list=rd')) {
+    return 'playlist'
+  }
+
+  if (
+    lower.includes('/browse/') ||
+    lower.includes('list=olak') ||
+    lower.includes('olak5uy') ||
+    lower.includes('album')
+  ) {
+    return 'album'
+  }
+
+  return 'song'
+}
+
+function getModalTitle(kind: DownloadKind) {
+  if (kind === 'album') return 'Download album'
+  if (kind === 'playlist') return 'Download playlist'
+  return 'Download song'
+}
+
+function getSavedMessage(kind: DownloadKind) {
+  if (kind === 'album') return 'Saved album to Music/NouTube'
+  if (kind === 'playlist') return 'Saved playlist to Music/NouTube'
+  return 'Saved song to Music/NouTube'
+}
+
+function upgradeFormatLabel(opt: FormatOption, kind: DownloadKind): FormatOption {
+  if (kind === 'album') {
+    return {
+      ...opt,
+      label: 'Download Full Album',
+      description: 'Best available YouTube Music audio saved to Music/NouTube',
+    }
+  }
+
+  if (kind === 'playlist') {
+    return {
+      ...opt,
+      label: 'Download Full Playlist',
+      description: 'Best available YouTube Music audio saved to Music/NouTube',
+    }
+  }
+
+  return {
+    ...opt,
+    label: opt.label || 'Audio only (Best quality)',
+    description: opt.description || 'Best available YouTube Music audio with album art',
+  }
+}
 
 export const ToolsModal = () => {
   const toolsModalOpen = useValue(ui$.toolsModalOpen)
   const toolsModalUrl = useValue(ui$.toolsModalUrl)
   const isOpen = toolsModalOpen || !!toolsModalUrl
   const downloadPath = useValue(settings$.downloadPath)
+
   const [url, setUrl] = useState('')
   const [resolvedDownloadsPath, setResolvedDownloadsPath] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
   const [formats, setFormats] = useState<FormatOption[]>([])
   const [parsedTitle, setParsedTitle] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [downloadKind, setDownloadKind] = useState<DownloadKind>('song')
+
   const activeDownloads = useValue(downloads$)
   const loadingUrlRef = useRef('')
   const isDark = useColorScheme() !== 'light'
@@ -37,21 +96,29 @@ export const ToolsModal = () => {
   }
 
   const loadFormats = useCallback((targetUrl: string) => {
-    loadingUrlRef.current = targetUrl
+    const trimmedUrl = targetUrl.trim()
+    const kind = getDownloadKind(trimmedUrl)
+
+    loadingUrlRef.current = trimmedUrl
+    setDownloadKind(kind)
     setPhase('loading')
     setFormats([])
     setParsedTitle('')
     setErrorMsg('')
+
     mainClient
-      .listFormats(targetUrl)
+      .listFormats(trimmedUrl)
       .then((result) => {
-        if (loadingUrlRef.current !== targetUrl) return
-        setFormats(result.formats)
+        if (loadingUrlRef.current !== trimmedUrl) return
+
+        const smartFormats = result.formats.map((opt) => upgradeFormatLabel(opt, kind))
+
+        setFormats(smartFormats)
         setParsedTitle(result.title)
         setPhase('choosing')
       })
       .catch((err: any) => {
-        if (loadingUrlRef.current !== targetUrl) return
+        if (loadingUrlRef.current !== trimmedUrl) return
         setErrorMsg(err?.message || t('modals.failedToLoadFormats'))
         setPhase('error')
       })
@@ -63,27 +130,35 @@ export const ToolsModal = () => {
 
   useEffect(() => {
     if (!isOpen) return
+
     if (toolsModalUrl) {
+      const kind = getDownloadKind(toolsModalUrl)
+      setDownloadKind(kind)
       setUrl(toolsModalUrl)
       loadFormats(toolsModalUrl)
     } else {
       setUrl('')
       setPhase('idle')
+      setDownloadKind('song')
     }
+
     setFormats([])
   }, [isOpen, toolsModalUrl, loadFormats])
 
   const handleDownload = (formatId: string) => {
-    const targetUrl = toolsModalUrl || url
+    const targetUrl = (toolsModalUrl || url).trim()
+    const kind = getDownloadKind(targetUrl)
+
     downloads$[targetUrl].set({
       url: targetUrl,
-      title: parsedTitle || targetUrl,
+      title: parsedTitle || getModalTitle(kind),
       phase: 'downloading',
       progress: 0,
       progressLine: '',
       errorMsg: '',
       savedPath: '',
     })
+
     setPhase('idle')
     setUrl('')
     ui$.toolsModalUrl.set('')
@@ -102,7 +177,7 @@ export const ToolsModal = () => {
     <BaseModal onClose={onClose}>
       <ScrollView className="flex-1" contentContainerClassName="p-5 gap-4" keyboardShouldPersistTaps="handled">
         <View className="flex-row items-center justify-between">
-          <NouText className="text-lg font-semibold">{t('modals.downloadVideo', 'Download video')}</NouText>
+          <NouText className="text-lg font-semibold">{getModalTitle(downloadKind)}</NouText>
         </View>
 
         <View className="gap-1">
@@ -112,6 +187,7 @@ export const ToolsModal = () => {
             value={url}
             onChangeText={(v) => {
               setUrl(v)
+              setDownloadKind(getDownloadKind(v))
               setPhase('idle')
               setFormats([])
             }}
@@ -120,7 +196,7 @@ export const ToolsModal = () => {
               if (trimmed) loadFormats(trimmed)
             }}
             returnKeyType="go"
-            placeholder="https://www.youtube.com/watch?v=..."
+            placeholder="https://music.youtube.com/..."
             placeholderTextColor={isDark ? '#71717a' : '#a1a1aa'}
           />
         </View>
@@ -161,6 +237,7 @@ export const ToolsModal = () => {
                 {parsedTitle}
               </NouText>
             )}
+
             {formats.map((opt) => (
               <View
                 key={opt.formatId}
@@ -198,16 +275,17 @@ export const ToolsModal = () => {
                 {t('modals.downloadHistory')}
               </NouText>
               <Pressable
-                onPress={() => {
-                  downloads$.set({})
-                }}
+                onPress={() => downloads$.set({})}
                 className="px-2 py-1 rounded-md active:bg-zinc-200 dark:active:bg-zinc-800"
               >
                 <NouText className="text-xs text-zinc-500 font-medium">{t('buttons.clearAll')}</NouText>
               </Pressable>
             </View>
+
             {activeDownloadUrls.map((dUrl) => {
               const d = activeDownloads[dUrl]
+              const historyKind = getDownloadKind(d.url || dUrl)
+
               return (
                 <View
                   key={dUrl}
@@ -225,15 +303,18 @@ export const ToolsModal = () => {
                         {d.title || dUrl}
                       </NouText>
                     </View>
+
                     {nIf(
                       d.phase === 'error',
                       <MaterialIcons name="error-outline" size={18} color={isDark ? '#f87171' : '#dc2626'} />,
                     )}
+
                     {nIf(
                       d.phase === 'downloading',
                       <ActivityIndicator size="small" color={isDark ? '#7dd3fc' : '#0284c7'} />,
                     )}
                   </View>
+
                   {d.phase === 'downloading' && (
                     <View className="h-2 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-950">
                       <View
@@ -242,20 +323,23 @@ export const ToolsModal = () => {
                       />
                     </View>
                   )}
+
                   {d.phase === 'downloading' && (
                     <NouText className="text-sm text-sky-700 dark:text-sky-200 font-mono" numberOfLines={2}>
                       {d.progressLine || t('modals.starting')}
                     </NouText>
                   )}
+
                   {d.phase === 'done' && (
                     <View className="gap-2">
                       <View className="mt-1 flex-row items-center gap-2">
                         <View className="flex-row items-center gap-2 mr-auto">
                           <MaterialIcons name="check-circle" size={18} color={isDark ? '#86efac' : '#16a34a'} />
                           <NouText className="text-xs text-zinc-500 dark:text-zinc-400" numberOfLines={1}>
-                            {isAndroid ? 'Saved to the Downloads folder' : t('modals.downloadComplete')}
+                            {isAndroid ? getSavedMessage(historyKind) : t('modals.downloadComplete')}
                           </NouText>
                         </View>
+
                         {!!d.savedPath && !isAndroid && (
                           <Pressable
                             onPress={() => mainClient.openFolder(d.savedPath)}
@@ -266,10 +350,9 @@ export const ToolsModal = () => {
                             </NouText>
                           </Pressable>
                         )}
+
                         <Pressable
-                          onPress={() => {
-                            downloads$[dUrl].delete()
-                          }}
+                          onPress={() => downloads$[dUrl].delete()}
                           className="bg-zinc-200 dark:bg-zinc-800 px-3 py-1.5 rounded-lg active:bg-zinc-300 dark:active:bg-zinc-700"
                         >
                           <NouText className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -279,6 +362,7 @@ export const ToolsModal = () => {
                       </View>
                     </View>
                   )}
+
                   {d.phase === 'error' && (
                     <View className="gap-2">
                       <NouText className="text-sm text-red-700 dark:text-red-300 font-medium">
@@ -286,9 +370,7 @@ export const ToolsModal = () => {
                       </NouText>
                       <View className="flex-row justify-end mt-1">
                         <Pressable
-                          onPress={() => {
-                            downloads$[dUrl].delete()
-                          }}
+                          onPress={() => downloads$[dUrl].delete()}
                           className="bg-zinc-200 dark:bg-zinc-800 px-3 py-1.5 rounded-lg active:bg-zinc-300 dark:active:bg-zinc-700"
                         >
                           <NouText className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
