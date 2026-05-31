@@ -520,12 +520,40 @@ class NouService : Service() {
 
   private fun loadAppIconBitmap(): Bitmap? {
     return try {
-      val drawable: Drawable = applicationInfo.loadIcon(packageManager)
+      val possibleNames = listOf(
+        "adaptive_icon",
+        "icon",
+        "ic_launcher",
+        "ic_launcher_foreground",
+        "mipmap/ic_launcher",
+        "mipmap/ic_launcher_foreground"
+      )
+
+      var drawable: Drawable? = null
+
+      for (name in possibleNames) {
+        val parts = name.split("/")
+        val resType = if (parts.size == 2) parts[0] else "drawable"
+        val resName = if (parts.size == 2) parts[1] else name
+        val id = resources.getIdentifier(resName, resType, packageName)
+
+        if (id != 0) {
+          drawable = resources.getDrawable(id, theme)
+          Log.d(TAG, "Loaded default artwork resource: $resType/$resName")
+          break
+        }
+      }
+
+      if (drawable == null) {
+        drawable = applicationInfo.loadIcon(packageManager)
+        Log.d(TAG, "Loaded default artwork from applicationInfo icon")
+      }
+
       val size = 512
       val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
       val canvas = Canvas(bitmap)
 
-      drawable.setBounds(0, 0, canvas.width, canvas.height)
+      drawable.setBounds(0, 0, size, size)
       drawable.draw(canvas)
 
       bitmap
@@ -544,20 +572,20 @@ class NouService : Service() {
     canvas.drawBitmap(base, null, Rect(0, 0, size, size), null)
 
     if (albumArt != null && logo != null) {
-      val logoSize = 112
-      val padding = 22
+      val logoSize = 128
+      val padding = 18
       val left = size - logoSize - padding
       val top = padding
       val logoRect = Rect(left, top, left + logoSize, top + logoSize)
 
       val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(205, 18, 0, 32)
+        color = Color.argb(215, 18, 0, 32)
       }
 
       val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(230, 57, 255, 20)
+        color = Color.argb(245, 57, 255, 20)
         style = Paint.Style.STROKE
-        strokeWidth = 5f
+        strokeWidth = 6f
       }
 
       val cx = left + logoSize / 2f
