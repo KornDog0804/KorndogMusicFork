@@ -3,6 +3,7 @@ package expo.modules.noutubeview
 import android.app.*
 import android.content.*
 import android.graphics.*
+import android.graphics.drawable.Drawable
 import android.media.*
 import android.os.*
 import android.util.Log
@@ -29,6 +30,7 @@ class NouService : Service() {
   private var isLiked = false
 
   private var currentArtwork: Bitmap? = null
+  private var defaultArtwork: Bitmap? = null
   private var lastThumbUrl = ""
 
   private var notificationManager: NotificationManager? = null
@@ -62,6 +64,7 @@ class NouService : Service() {
     super.onCreate()
     notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    defaultArtwork = loadAppIconBitmap()
     createNotificationChannel()
     initMediaSession()
     startForeground(NOTIFICATION_ID, buildNotification())
@@ -183,6 +186,7 @@ class NouService : Service() {
   private fun runPlayerJs(js: String) {
     val wv = webView ?: return
     val act = activity
+
     if (act != null) {
       act.runOnUiThread {
         try {
@@ -371,7 +375,9 @@ class NouService : Service() {
       )
 
     if (contentIntent != null) builder.setContentIntent(contentIntent)
-    currentArtwork?.let { builder.setLargeIcon(it) }
+
+    val artwork = makeBrandedArtwork(currentArtwork, defaultArtwork)
+    artwork?.let { builder.setLargeIcon(it) }
 
     return builder.build()
   }
@@ -387,6 +393,7 @@ class NouService : Service() {
   private fun updateAll() {
     updateMetadata()
     updatePlaybackState()
+
     try {
       notificationManager?.notify(NOTIFICATION_ID, buildNotification())
     } catch (e: Exception) {
@@ -397,6 +404,8 @@ class NouService : Service() {
   private fun updateMetadata() {
     if (!::mediaSession.isInitialized) return
 
+    val artwork = makeBrandedArtwork(currentArtwork, defaultArtwork)
+
     val builder = MediaMetadataCompat.Builder()
       .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
       .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentArtist)
@@ -404,7 +413,7 @@ class NouService : Service() {
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentArtist)
       .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, currentDuration)
 
-    currentArtwork?.let {
+    artwork?.let {
       builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
       builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, it)
       builder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, it)
@@ -509,6 +518,60 @@ class NouService : Service() {
     }
   }
 
+  private fun loadAppIconBitmap(): Bitmap? {
+    return try {
+      val drawable: Drawable = applicationInfo.loadIcon(packageManager)
+      val size = 512
+      val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+      val canvas = Canvas(bitmap)
+
+      drawable.setBounds(0, 0, canvas.width, canvas.height)
+      drawable.draw(canvas)
+
+      bitmap
+    } catch (e: Exception) {
+      Log.e(TAG, "Default artwork load failed", e)
+      null
+    }
+  }
+
+  private fun makeBrandedArtwork(albumArt: Bitmap?, logo: Bitmap?): Bitmap? {
+    val base = albumArt ?: logo ?: return null
+    val size = 512
+    val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(output)
+
+    canvas.drawBitmap(base, null, Rect(0, 0, size, size), null)
+
+    if (albumArt != null && logo != null) {
+      val logoSize = 112
+      val padding = 22
+      val left = size - logoSize - padding
+      val top = padding
+      val logoRect = Rect(left, top, left + logoSize, top + logoSize)
+
+      val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(205, 18, 0, 32)
+      }
+
+      val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 57, 255, 20)
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+      }
+
+      val cx = left + logoSize / 2f
+      val cy = top + logoSize / 2f
+      val radius = logoSize / 2f + 9f
+
+      canvas.drawCircle(cx, cy, radius, bgPaint)
+      canvas.drawCircle(cx, cy, radius, ringPaint)
+      canvas.drawBitmap(logo, null, logoRect, null)
+    }
+
+    return output
+  }
+
   private fun requestAudioFocus() {
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -563,6 +626,7 @@ class NouService : Service() {
 
   fun exit() {
     clearSleepTimer()
+
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
         audioManager?.abandonAudioFocusRequest(audioFocusRequest!!)
