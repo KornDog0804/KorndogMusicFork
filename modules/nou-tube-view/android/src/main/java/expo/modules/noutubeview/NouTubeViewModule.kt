@@ -112,9 +112,9 @@ class NouTubeViewModule : Module() {
       }
     }
 
-    AsyncFunction("getDownloadsPath") {
-      android.os.Environment.DIRECTORY_DOWNLOADS
-    }
+  AsyncFunction("getDownloadsPath") {
+  "Music Folder/NouTube"
+  }
 
     AsyncFunction("updateYtDlp") {
       ytDlp().update()
