@@ -14,36 +14,39 @@ import { isAndroid, nIf } from '@/lib/utils'
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'
 
 type Phase = 'idle' | 'loading' | 'choosing' | 'error'
-type DownloadKind = 'song' | 'album' | 'playlist'
+type DownloadKind = 'song' | 'album' | 'unsupportedPlaylist'
 
 function getDownloadKind(targetUrl: string): DownloadKind {
   const lower = targetUrl.toLowerCase()
 
-  if (lower.includes('playlist') || lower.includes('list=pl') || lower.includes('list=rd')) {
-    return 'playlist'
-  }
-
-  if (
-    lower.includes('/browse/') ||
+  const isAlbum =
     lower.includes('list=olak') ||
     lower.includes('olak5uy') ||
-    lower.includes('album')
-  ) {
-    return 'album'
-  }
+    lower.includes('/browse/mpre') ||
+    lower.includes('/browse/')
+
+  if (isAlbum) return 'album'
+
+  const isPlaylist =
+    lower.includes('/playlist') ||
+    lower.includes('list=pl') ||
+    lower.includes('list=rd') ||
+    lower.includes('list=lm') ||
+    lower.includes('playlist?list=')
+
+  if (isPlaylist) return 'unsupportedPlaylist'
 
   return 'song'
 }
 
 function getModalTitle(kind: DownloadKind) {
   if (kind === 'album') return 'Download album'
-  if (kind === 'playlist') return 'Download playlist'
+  if (kind === 'unsupportedPlaylist') return 'Playlist downloads disabled'
   return 'Download song'
 }
 
 function getSavedMessage(kind: DownloadKind) {
   if (kind === 'album') return 'Saved album to Music/NouTube'
-  if (kind === 'playlist') return 'Saved playlist to Music/NouTube'
   return 'Saved song to Music/NouTube'
 }
 
@@ -56,17 +59,9 @@ function upgradeFormatLabel(opt: FormatOption, kind: DownloadKind): FormatOption
     }
   }
 
-  if (kind === 'playlist') {
-    return {
-      ...opt,
-      label: 'Download Full Playlist',
-      description: 'Best available YouTube Music audio saved to Music/NouTube',
-    }
-  }
-
   return {
     ...opt,
-    label: opt.label || 'Audio only (Best quality)',
+    label: 'Download Song',
     description: opt.description || 'Best available YouTube Music audio with album art',
   }
 }
@@ -105,6 +100,12 @@ export const ToolsModal = () => {
     setFormats([])
     setParsedTitle('')
     setErrorMsg('')
+
+    if (kind === 'unsupportedPlaylist') {
+      setPhase('error')
+      setErrorMsg('Playlist downloads are disabled for now so we do not accidentally pull huge playlists. Open an album or song instead.')
+      return
+    }
 
     mainClient
       .listFormats(trimmedUrl)
@@ -149,6 +150,12 @@ export const ToolsModal = () => {
     const targetUrl = (toolsModalUrl || url).trim()
     const kind = getDownloadKind(targetUrl)
 
+    if (kind === 'unsupportedPlaylist') {
+      setPhase('error')
+      setErrorMsg('Playlist downloads are disabled. Use song or album downloads only.')
+      return
+    }
+
     downloads$[targetUrl].set({
       url: targetUrl,
       title: parsedTitle || getModalTitle(kind),
@@ -190,6 +197,7 @@ export const ToolsModal = () => {
               setDownloadKind(getDownloadKind(v))
               setPhase('idle')
               setFormats([])
+              setErrorMsg('')
             }}
             onSubmitEditing={() => {
               const trimmed = url.trim()
