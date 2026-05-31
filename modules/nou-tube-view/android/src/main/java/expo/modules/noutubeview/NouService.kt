@@ -38,6 +38,8 @@ class NouService : Service() {
   private var pendingArtist = ""
   private var pendingThumb = ""
   private var pendingSince = 0L
+  private var lastAcceptedTrackKey = ""
+  private var lastNotifyAt = 0L
 
   private var notificationManager: NotificationManager? = null
   private var audioManager: AudioManager? = null
@@ -178,9 +180,17 @@ class NouService : Service() {
 
   private fun likeFromControl() {
     if (!controlAllowed()) return
-    isLiked = !isLiked
-    runPlayerJs(likeJs())
+
+    val optimisticLiked = !isLiked
+    isLiked = optimisticLiked
     updateAll()
+
+    runPlayerJs(likeJs())
+
+    scope.launch {
+      delay(900L)
+      runPlayerJs(checkLikeStateJs())
+    }
   }
 
   private fun shuffleFromControl() {
@@ -306,11 +316,51 @@ class NouService : Service() {
           var btn=document.querySelector(selectors[i]);
           if(btn){
             btn.click();
+            setTimeout(function(){
+              try{
+                if(window.NouTubeI && window.NouTubeI.notifyLikeState){
+                  window.NouTubeI.notifyLikeState(window.__kdDetectLiked ? window.__kdDetectLiked() : false);
+                }
+              }catch(e){}
+            },650);
             return true;
           }
         }
       }catch(e){}
       return false;
+    })();
+  """.trimIndent()
+
+  private fun checkLikeStateJs(): String = """
+    (function(){
+      try{
+        if(!window.__kdDetectLiked){
+          window.__kdDetectLiked=function(){
+            try{
+              var selectors=[
+                'ytmusic-player-bar button[aria-label*="Remove from liked songs"]',
+                'ytmusic-player-bar [aria-label*="Remove from liked songs"]',
+                'button[aria-label*="Remove from liked songs"]',
+                '[aria-label*="Remove from liked songs"]'
+              ];
+              for(var i=0;i<selectors.length;i++){
+                if(document.querySelector(selectors[i])) return true;
+              }
+
+              var pressed=document.querySelector('ytmusic-player-bar [aria-pressed="true"][aria-label*="Like"], ytmusic-player-bar [aria-pressed="true"][aria-label*="like"]');
+              if(pressed) return true;
+
+              return false;
+            }catch(e){
+              return false;
+            }
+          };
+        }
+
+        if(window.NouTubeI && window.NouTubeI.notifyLikeState){
+          window.NouTubeI.notifyLikeState(window.__kdDetectLiked());
+        }
+      }catch(e){}
     })();
   """.trimIndent()
 
@@ -488,30 +538,34 @@ class NouService : Service() {
     }
 
     val incomingKey = "$cleanTitle|$cleanArtist|$thumbnail"
-    val currentKey = "$currentTitle|$currentArtist|$lastThumbUrl"
+    val now = SystemClock.elapsedRealtime()
 
-    if (incomingKey != currentKey) {
+    if (incomingKey != lastAcceptedTrackKey) {
       val pendingKey = "$pendingTitle|$pendingArtist|$pendingThumb"
 
       if (incomingKey != pendingKey) {
         pendingTitle = cleanTitle
         pendingArtist = cleanArtist
         pendingThumb = thumbnail
-        pendingSince = SystemClock.elapsedRealtime()
+        pendingSince = now
         return
       }
 
-      if (SystemClock.elapsedRealtime() - pendingSince < 900L) {
+      if (now - pendingSince < 900L) {
         return
       }
     }
 
+    if (now - lastNotifyAt < 350L && incomingKey == lastAcceptedTrackKey) {
+      return
+    }
+
+    lastNotifyAt = now
+    lastAcceptedTrackKey = incomingKey
+
     currentTitle = cleanTitle
     currentArtist = cleanArtist
-    pendingTitle = ""
-    pendingArtist = ""
-    pendingThumb = ""
-    pendingSince = 0L
+    resetPendingTrack()
 
     currentDuration = if (seconds > 0L) {
       seconds * 1000L
@@ -525,12 +579,20 @@ class NouService : Service() {
       isPlaying = true
     }
 
+    runPlayerJs(checkLikeStateJs())
+
     if (thumbnail.isNotBlank() && thumbnail != lastThumbUrl) {
       lastThumbUrl = thumbnail
       loadArtworkAsync(thumbnail)
     } else {
       updateAll()
     }
+  }
+
+  fun notifyLikeState(liked: Boolean) {
+    if (isLiked == liked) return
+    isLiked = liked
+    updateAll()
   }
 
   fun notifyProgress(playing: Boolean, pos: Long) {
@@ -599,12 +661,12 @@ class NouService : Service() {
   private fun loadAppIconBitmap(): Bitmap? {
     return try {
       val possibleNames = listOf(
-        "adaptive_icon",
-        "adaptive_icon_foreground",
-        "icon",
-        "ic_launcher",
         "ic_launcher_foreground",
         "ic_launcher_round",
+        "ic_launcher",
+        "adaptive_icon_foreground",
+        "adaptive_icon",
+        "icon",
         "notification_icon"
       )
 
@@ -688,11 +750,11 @@ class NouService : Service() {
       val logoRect = Rect(left, top, left + logoSize, top + logoSize)
 
       val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(160, 0, 0, 0)
+        color = Color.argb(165, 0, 0, 0)
       }
 
       val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(230, 18, 0, 32)
+        color = Color.argb(232, 18, 0, 32)
       }
 
       val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
