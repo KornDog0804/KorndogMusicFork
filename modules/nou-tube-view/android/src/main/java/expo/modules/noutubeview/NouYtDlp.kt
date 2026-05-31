@@ -134,28 +134,41 @@ internal class NouYtDlp(private val context: Context) {
   fun listFormats(url: String): Map<String, Any> {
     ensureYoutubeDLInitialized()
 
+    val isAlbumOrPlaylist = isAlbumOrPlaylistUrl(url)
+
     val request = YoutubeDLRequest(url)
     request.addOption("--dump-json")
-    request.addOption("--no-playlist")
+    if (!isAlbumOrPlaylist) {
+      request.addOption("--no-playlist")
+    }
     request.addOption("-R", "1")
-    request.addOption("--socket-timeout", "5")
+    request.addOption("--socket-timeout", "10")
     request.addOption("-f", AUDIO_FORMAT_ID)
 
     val response = YoutubeDL.getInstance().execute(request)
     val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty format output"))
+
+    val title = json.optString(
+      "playlist_title",
+      json.optString("album", json.optString("title", "NouTube Audio"))
+    )
 
     val options = mutableListOf<Map<String, String>>()
 
     options.add(
       mapOf(
         "formatId" to AUDIO_FORMAT_ID,
-        "label" to "Audio only (Best quality)",
-        "description" to "Best available YouTube Music audio with album art",
+        "label" to if (isAlbumOrPlaylist) "Album / Playlist (Best quality)" else "Audio only (Best quality)",
+        "description" to if (isAlbumOrPlaylist) {
+          "Download all tracks as best available YouTube Music audio"
+        } else {
+          "Best available YouTube Music audio with album art"
+        },
       )
     )
 
     return mapOf(
-      "title" to json.optString("title"),
+      "title" to title,
       "formats" to options,
     )
   }
@@ -168,6 +181,8 @@ internal class NouYtDlp(private val context: Context) {
   ): DownloadResult {
     ensureInitialized()
 
+    val isAlbumOrPlaylist = isAlbumOrPlaylistUrl(url)
+
     val tempDir = File(context.cacheDir, "yt-dlp-download-${System.currentTimeMillis()}").apply {
       mkdirs()
     }
@@ -176,8 +191,17 @@ internal class NouYtDlp(private val context: Context) {
     val safeFormatId = if (formatId.isBlank()) AUDIO_FORMAT_ID else formatId
 
     request.addOption("-f", safeFormatId)
-    request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
-    request.addOption("--no-playlist")
+
+    if (isAlbumOrPlaylist) {
+      request.addOption(
+        "-o",
+        "${tempDir.absolutePath}/%(playlist_title,album,title|NouTube Collection)s/%(playlist_index,track_number|000)03d - %(title)s.%(ext)s"
+      )
+    } else {
+      request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
+      request.addOption("--no-playlist")
+    }
+
     request.addOption("--extract-audio")
     request.addOption("--audio-format", "m4a")
     request.addOption("--audio-quality", "0")
@@ -186,6 +210,8 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--add-metadata")
     request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
     request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
+    request.addOption("-R", "2")
+    request.addOption("--socket-timeout", "20")
 
     var lastLine = ""
 
@@ -195,21 +221,49 @@ internal class NouYtDlp(private val context: Context) {
         onProgress(progress, etaInSeconds, line)
       }
 
-      val outputFile = tempDir
-        .listFiles()
-        ?.filter { it.isFile && isPlayableAudioOutput(it) }
-        ?.maxByOrNull { it.lastModified() }
-        ?: throw Exception("Download completed but no playable audio file was produced")
+      val outputFiles = tempDir
+        .walkTopDown()
+        .filter { it.isFile && isPlayableAudioOutput(it) }
+        .sortedBy { it.name.lowercase() }
+        .toList()
 
-      val savedUri = publishToMusic(outputFile)
+      if (outputFiles.isEmpty()) {
+        throw Exception("Download completed but no playable audio file was produced")
+      }
+
+      var savedUri: Uri? = null
+
+      for (file in outputFiles) {
+        val collectionFolder = if (isAlbumOrPlaylist) {
+          val parent = file.parentFile
+          if (parent != null && parent.absolutePath != tempDir.absolutePath) {
+            cleanFolderName(parent.name)
+          } else {
+            "Collection"
+          }
+        } else {
+          null
+        }
+
+        savedUri = publishToMusic(file, collectionFolder)
+      }
 
       return DownloadResult(
         lastLine = lastLine,
-        savedPath = savedUri.toString(),
+        savedPath = savedUri?.toString() ?: "",
       )
     } finally {
       tempDir.deleteRecursively()
     }
+  }
+
+  private fun isAlbumOrPlaylistUrl(url: String): Boolean {
+    val lower = url.lowercase()
+    return lower.contains("list=") ||
+      lower.contains("/playlist") ||
+      lower.contains("/browse/") ||
+      lower.contains("olak") ||
+      lower.contains("olāk")
   }
 
   private fun isPlayableAudioOutput(file: File): Boolean {
@@ -217,6 +271,21 @@ internal class NouYtDlp(private val context: Context) {
       "m4a", "mp3", "aac", "opus", "ogg", "flac" -> true
       else -> false
     }
+  }
+
+  private fun cleanFolderName(name: String): String {
+    return name
+      .replace("/", "-")
+      .replace("\\", "-")
+      .replace(":", " -")
+      .replace("*", "")
+      .replace("?", "")
+      .replace("\"", "")
+      .replace("<", "")
+      .replace(">", "")
+      .replace("|", "")
+      .trim()
+      .ifBlank { "NouTube Collection" }
   }
 
   fun update() {
@@ -326,11 +395,17 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
-  private fun publishToMusic(sourceFile: File): Uri {
+  private fun publishToMusic(sourceFile: File, collectionFolder: String? = null): Uri {
     val extension = sourceFile.extension.lowercase()
     val mimeType = MimeTypeMap.getSingleton()
       .getMimeTypeFromExtension(extension)
       .orEmpty()
+
+    val relativePath = if (collectionFolder.isNullOrBlank()) {
+      DOWNLOAD_RELATIVE_PATH
+    } else {
+      "$DOWNLOAD_RELATIVE_PATH/${cleanFolderName(collectionFolder)}"
+    }
 
     val values = ContentValues().apply {
       put(MediaStore.Audio.Media.DISPLAY_NAME, sourceFile.name)
@@ -340,7 +415,7 @@ internal class NouYtDlp(private val context: Context) {
         put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
       }
 
-      put(MediaStore.Audio.Media.RELATIVE_PATH, DOWNLOAD_RELATIVE_PATH)
+      put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
       put(MediaStore.Audio.Media.IS_PENDING, 1)
     }
 
