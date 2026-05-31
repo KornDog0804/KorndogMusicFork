@@ -21,7 +21,6 @@ import { useSleepTimerStatus } from '@/lib/sleep-timer'
 import { NouText } from '../NouText'
 import { formatPlaybackRate } from '@/lib/playback-rate'
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'
-
 import { downloads$ } from '@/states/downloads'
 
 export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
@@ -51,14 +50,14 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
   const translateY = useSharedValue(0)
 
   useEffect(() => {
-    if (!isWeb || !uiState.webview) {
-      return
-    }
+    if (!isWeb || !uiState.webview) return
     setCanGoBack(uiState.webview.canGoBack())
     setCanGoForward(uiState.webview.canGoForward())
   }, [uiState.pageUrl, uiState.webview])
 
   const pageType = getPageType(uiState.pageUrl)
+  const playbackRateLabel = formatPlaybackRate(playbackRate)
+  const Root = isWeb ? View : Animated.View
 
   const onToggleHome = () => {
     let newUrl = 'https://music.youtube.com'
@@ -76,10 +75,15 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
     }
   }
 
-  useEffect(() => {
-    if (isWeb) {
-      return
+  const openTools = () => {
+    if (uiState.pageUrl) {
+      ui$.toolsModalUrl.set(uiState.pageUrl)
     }
+    ui$.toolsModalOpen.set(true)
+  }
+
+  useEffect(() => {
+    if (isWeb) return
     const shouldHide = !isHorizontal && (autoHideHeader || hideToolbarWhenScrolled) && !uiState.headerShown
     const next = shouldHide ? -uiState.headerHeight : 0
     translateY.value = withTiming(next)
@@ -90,9 +94,6 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
       transform: [{ translateY: translateY.value }],
     }
   }, [translateY])
-  const playbackRateLabel = formatPlaybackRate(playbackRate)
-
-  const Root = isWeb ? View : Animated.View
 
   return (
     <Root
@@ -131,6 +132,7 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
           </>,
         )}
       </View>
+
       <View className="flex flex-row lg:flex-col lg:pb-1 items-center gap-2">
         {nIf(
           showPlaybackSpeedControl,
@@ -143,27 +145,26 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
             </View>
           </Pressable>,
         )}
+
         {nIf(
           sleepTimerSupported && sleepTimerActive,
           <MaterialButton name="bedtime" color="#60a5fa" onPress={() => ui$.sleepTimerModalOpen.set(true)} />,
         )}
+
         {nIf(
           !isYTMusic && queueSize > 0,
           <MaterialButton name="playlist-play" onPress={() => ui$.queueModalOpen.set(!ui$.queueModalOpen.get())} />,
         )}
+
         {nIf(
-          pageType?.type === 'watch' || hasDownloads,
+          isYTMusic || pageType?.type === 'watch' || hasDownloads,
           <MaterialButton
             name="download"
             color={isDownloading ? '#60a5fa' : headerControlColor}
-            onPress={() => {
-              if (pageType?.type === 'watch') {
-                ui$.toolsModalUrl.set(uiState.pageUrl)
-              }
-              ui$.toolsModalOpen.set(true)
-            }}
+            onPress={openTools}
           />,
         )}
+
         {nIf(
           pageType?.canStar,
           <MaterialButton
@@ -172,12 +173,19 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
             onPress={onToggleStar}
           />,
         )}
+
         <NouMenu
           trigger={isWeb ? <MaterialButton name="more-vert" /> : isIos ? 'ellipsis' : 'filled.MoreVert'}
           items={[
             {
               label: isYTMusic ? 'YouTube' : 'YouTube Music',
-              icon: <MaterialIcons name={isYTMusic ? 'video-library' : 'library-music'} size={18} color={headerControlColor} />,
+              icon: (
+                <MaterialIcons
+                  name={isYTMusic ? 'video-library' : 'library-music'}
+                  size={18}
+                  color={headerControlColor}
+                />
+              ),
               systemImage: isYTMusic ? 'play.rectangle.stack' : 'music.note.house',
               handler: onToggleHome,
             },
@@ -203,9 +211,7 @@ export const NouHeader: React.FC<{ noutube: any }> = ({ noutube }) => {
               label: t('menus.tools', 'Tools'),
               icon: <MaterialIcons name="download" size={18} color={headerControlColor} />,
               systemImage: 'arrow.down.circle',
-              handler: () => {
-                ui$.toolsModalOpen.set(true)
-              },
+              handler: openTools,
             },
             {
               label: t('settings.label'),
