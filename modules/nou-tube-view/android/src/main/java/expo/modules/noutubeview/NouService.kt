@@ -430,7 +430,9 @@ class NouService : Service() {
     } else null
 
     val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-      .setSmallIcon(applicationInfo.icon)
+      .setSmallIcon(getNotificationIconResId())
+      .setColor(Color.rgb(57, 255, 20))
+      .setColorized(true)
       .setContentTitle(currentTitle)
       .setContentText(currentArtist)
       .setSubText("NouTube")
@@ -464,6 +466,11 @@ class NouService : Service() {
       Intent(this, NouService::class.java).apply { this.action = action },
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
+
+  private fun getNotificationIconResId(): Int {
+    val id = resources.getIdentifier("notification_icon", "drawable", packageName)
+    return if (id != 0) id else applicationInfo.icon
+  }
 
   private fun updateAll() {
     updateMetadata()
@@ -502,13 +509,14 @@ class NouService : Service() {
     if (!::mediaSession.isInitialized) return
 
     val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
-    val likeIcon = if (isLiked) {
-    android.R.drawable.btn_star_big_on
-} else {
-    android.R.drawable.ic_menu_add
-}
 
-val likeTitle = if (isLiked) "Liked" else "Add to liked songs"
+    val likeIcon = if (isLiked) {
+      android.R.drawable.btn_star_big_on
+    } else {
+      android.R.drawable.ic_menu_add
+    }
+
+    val likeTitle = if (isLiked) "Liked" else "Add to liked songs"
 
     val playbackState = PlaybackStateCompat.Builder()
       .setActions(
