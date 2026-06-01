@@ -502,8 +502,13 @@ class NouService : Service() {
     if (!::mediaSession.isInitialized) return
 
     val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
-    val likeIcon = if (isLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
-    val likeTitle = if (isLiked) "Liked" else "Like"
+    val likeIcon = if (isLiked) {
+    android.R.drawable.btn_star_big_on
+} else {
+    android.R.drawable.ic_menu_add
+}
+
+val likeTitle = if (isLiked) "Liked" else "Add to liked songs"
 
     val playbackState = PlaybackStateCompat.Builder()
       .setActions(
