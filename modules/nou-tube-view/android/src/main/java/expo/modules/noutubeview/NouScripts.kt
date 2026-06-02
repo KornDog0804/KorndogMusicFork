@@ -283,6 +283,13 @@ setInterval(theme,2500);
 
 var STREAMING_BACKGROUND='https://korndogrecords.com/images/korndog-streaming-template-blank.png';
 
+function cleanArtistName(v){
+  return (v||'')
+    .replace(/\s+/g,' ')
+    .replace(/Verified|Artist|Subscribers|Subscribe|Songs|Albums|Videos|Radio/gi,'')
+    .trim();
+}
+
 function latestTrack(){
   try{
     var q=JSON.parse(localStorage.getItem('korndog_queue')||'[]');
@@ -290,6 +297,56 @@ function latestTrack(){
   }catch(e){}
 
   return {title:'',artist:'',album:'',thumb:''};
+}
+
+function suggestedArtists(currentArtist){
+  try{
+    var names=[];
+    var seen={};
+    var bad={
+      'home':1,'explore':1,'library':1,'upgrade':1,'downloads':1,'playlists':1,
+      'songs':1,'albums':1,'videos':1,'artists':1,'podcasts':1,'radio':1,
+      'shuffle':1,'play':1,'start radio':1,'more':1,'next':1,'previous':1
+    };
+
+    function add(v){
+      v=cleanArtistName(v);
+      if(!v)return;
+      if(v.length<2||v.length>42)return;
+
+      var low=v.toLowerCase();
+      var cur=(currentArtist||'').toLowerCase();
+
+      if(bad[low])return;
+      if(cur&&low===cur)return;
+      if(seen[low])return;
+
+      seen[low]=true;
+      names.push(v);
+    }
+
+    var selectors=[
+      'ytmusic-carousel-shelf-renderer a',
+      'ytmusic-responsive-list-item-renderer a',
+      'ytmusic-two-row-item-renderer a',
+      'ytmusic-shelf-renderer a',
+      'a[href*="channel"]',
+      'a[href*="browse"]'
+    ];
+
+    for(var s=0;s<selectors.length;s++){
+      var els=document.querySelectorAll(selectors[s]);
+      for(var i=0;i<els.length;i++){
+        var txt=els[i].innerText||els[i].textContent||els[i].getAttribute('title')||'';
+        add(txt);
+        if(names.length>=3)return names.slice(0,3).join(' • ');
+      }
+    }
+
+    return names.slice(0,3).join(' • ');
+  }catch(e){
+    return '';
+  }
 }
 
 function openGen(type){
@@ -325,13 +382,20 @@ function openGen(type){
       p.set('cover',song.thumb);
     }
 
+    if(type === 'discovery'){
+      var liveSuggestions=suggestedArtists(song.artist);
+      if(liveSuggestions)p.set('soundsLike',liveSuggestions);
+    }
+
     var base = type === 'stream'
       ? 'https://korndogrecords.com/korndog-streaming-generator.html'
-      : 'https://korndogrecords.com/korndog-spinning-generator.html';
+      : type === 'discovery'
+        ? 'https://korndogrecords.com/artist-discovery-generator.html'
+        : 'https://korndogrecords.com/korndog-spinning-generator.html';
 
     window.location.href=base+'?'+p.toString();
   }catch(e){
-    window.location.href='https://korndogrecords.com/korndog-spinning-generator.html?from=ghostkernel';
+    window.location.href='https://korndogrecords.com/artist-discovery-generator.html?artist=ARTIST&title=SONG';
   }
 }
 
@@ -381,6 +445,16 @@ function button(id,emoji,label,bottom,border,glow,type){
 }
 
 function install(){
+  button(
+    'korndog-discovery-btn',
+    '🔍',
+    'Open Zombie Kitty Artist Discovery',
+    216,
+    '#ff3eb5',
+    'rgba(255,62,181,.55)',
+    'discovery'
+  );
+
   button(
     'korndog-stream-btn',
     '🎧',
