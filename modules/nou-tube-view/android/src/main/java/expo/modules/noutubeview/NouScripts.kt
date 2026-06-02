@@ -264,6 +264,361 @@ val KORNDOG_CLICKABLE_PLAYER_SCRIPT = """
 })();
 """
 
+val KORNDOG_ARTIST_BRAIN_SCRIPT = """
+(function(){
+if(window._kdArtistBrainInit)return;
+window._kdArtistBrainInit=true;
+
+var BRAIN_KEY='korndog_artist_brain';
+var RECENT_KEY='korndog_recent_artists';
+var MAX_RELATED=12;
+var MAX_RECENT=60;
+
+function now(){return Date.now();}
+
+function readJson(key,fallback){
+  try{
+    var s=localStorage.getItem(key);
+    return s?JSON.parse(s):fallback;
+  }catch(e){return fallback}
+}
+
+function writeJson(key,val){
+  try{localStorage.setItem(key,JSON.stringify(val))}catch(e){}
+}
+
+function clean(v){
+  return String(v||'')
+    .replace(/\s+/g,' ')
+    .replace(/\bExplicit\b/gi,'')
+    .replace(/\bOfficial\b/gi,'')
+    .replace(/\bVideo\b/gi,'')
+    .replace(/\bAudio\b/gi,'')
+    .replace(/\bVisualizer\b/gi,'')
+    .trim();
+}
+
+function keyName(v){
+  return clean(v)
+    .toLowerCase()
+    .replace(/&/g,'and')
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim();
+}
+
+function isBadName(v,current){
+  var s=clean(v);
+  var k=keyName(s);
+  var cur=keyName(current);
+
+  if(!k)return true;
+  if(cur&&k===cur)return true;
+  if(s.length<2||s.length>44)return true;
+
+  var bad=[
+    'home','explore','library','upgrade','downloads','download','play','pause',
+    'shuffle','mix','radio','start radio','songs','song','albums','album',
+    'videos','video','artists','artist','podcasts','podcast','lyrics',
+    'related','up next','listen again','quick picks','supermix','my supermix',
+    'recommended','recommended for you','new releases','charts','moods and genres',
+    'more','next','previous','open app','subscribe','subscribed','views',
+    'monthly audience','playlist','playlists','youtube music','music',
+    'top songs','singles','eps','appears on','fans might also like',
+    'similar artists','related artists','about'
+  ];
+
+  if(bad.indexOf(k)>-1)return true;
+  if(/\d+\s*(k|m|b)?\s*(views|plays|subscribers|monthly|audience)/i.test(s))return true;
+  if(/^\d+:\d+$/.test(s))return true;
+  if(/^#?\d+$/.test(s))return true;
+  if(k.indexOf('playlist')>-1)return true;
+  if(k.indexOf('official')>-1)return true;
+  if(k.indexOf('lyrics')>-1)return true;
+
+  return false;
+}
+
+function addUnique(arr,name,current){
+  name=clean(name);
+  if(isBadName(name,current))return arr;
+
+  var k=keyName(name);
+  for(var i=0;i<arr.length;i++){
+    if(keyName(arr[i])===k)return arr;
+  }
+
+  arr.push(name);
+  return arr;
+}
+
+function getBrain(){
+  return readJson(BRAIN_KEY,{});
+}
+
+function saveBrain(brain){
+  writeJson(BRAIN_KEY,brain);
+}
+
+function currentTrack(){
+  var fromQueue=null;
+
+  try{
+    var q=JSON.parse(localStorage.getItem('korndog_queue')||'[]');
+    if(q&&q.length)fromQueue=q[0];
+  }catch(e){}
+
+  var title=fromQueue&&fromQueue.title?fromQueue.title:'';
+  var artist=fromQueue&&fromQueue.artist?fromQueue.artist:'';
+
+  if(!title){
+    var te=document.querySelector('ytmusic-player-bar .title')||
+      document.querySelector('.content-info-wrapper .title')||
+      document.querySelector('ytmusic-player-page .title');
+    if(te)title=clean(te.innerText||te.textContent);
+  }
+
+  if(!artist){
+    var ae=document.querySelector('ytmusic-player-bar .subtitle')||
+      document.querySelector('.content-info-wrapper .subtitle')||
+      document.querySelector('ytmusic-player-page .subtitle');
+
+    if(ae){
+      artist=clean(ae.innerText||ae.textContent);
+      if(artist.indexOf(' • ')>-1)artist=artist.split(' • ')[0].trim();
+      if(artist.indexOf(' - ')>-1)artist=artist.split(' - ')[0].trim();
+    }
+  }
+
+  return {title:clean(title),artist:clean(artist)};
+}
+
+function rememberRecentArtist(name){
+  if(isBadName(name,''))return;
+
+  var recent=readJson(RECENT_KEY,[]);
+  var k=keyName(name);
+
+  recent=recent.filter(function(x){return keyName(x.name)!==k;});
+  recent.unshift({name:clean(name),seen:now()});
+
+  if(recent.length>MAX_RECENT)recent=recent.slice(0,MAX_RECENT);
+  writeJson(RECENT_KEY,recent);
+}
+
+function learnTrack(){
+  var t=currentTrack();
+  if(!t.artist)return;
+
+  rememberRecentArtist(t.artist);
+
+  var brain=getBrain();
+  var k=keyName(t.artist);
+
+  if(!brain[k]){
+    brain[k]={
+      name:t.artist,
+      related:[],
+      tracks:[],
+      learnedFrom:[],
+      lastSeen:now(),
+      confidence:1
+    };
+  }
+
+  brain[k].name=t.artist;
+  brain[k].lastSeen=now();
+
+  if(t.title){
+    var exists=false;
+    for(var i=0;i<brain[k].tracks.length;i++){
+      if(keyName(brain[k].tracks[i])===keyName(t.title))exists=true;
+    }
+    if(!exists)brain[k].tracks.unshift(t.title);
+    if(brain[k].tracks.length>12)brain[k].tracks=brain[k].tracks.slice(0,12);
+  }
+
+  if(brain[k].learnedFrom.indexOf('player')===-1)brain[k].learnedFrom.push('player');
+
+  saveBrain(brain);
+}
+
+function shelfHeaderText(el){
+  var h=el.querySelector('yt-formatted-string.title, .title, h2, h3');
+  return clean(h?h.innerText||h.textContent:'');
+}
+
+function collectLinksInside(el,currentArtist){
+  var out=[];
+  var nodes=el.querySelectorAll(
+    'ytmusic-two-row-item-renderer, ytmusic-responsive-list-item-renderer, a[href*="channel"], a[href*="browse"]'
+  );
+
+  for(var i=0;i<nodes.length;i++){
+    var n=nodes[i];
+
+    var txt =
+      n.getAttribute('title') ||
+      n.querySelector('.title')?.innerText ||
+      n.querySelector('yt-formatted-string.title')?.innerText ||
+      n.innerText ||
+      n.textContent ||
+      '';
+
+    txt=clean(txt);
+
+    if(txt.indexOf('\n')>-1)txt=txt.split('\n')[0].trim();
+    if(txt.indexOf(' • ')>-1)txt=txt.split(' • ')[0].trim();
+
+    out=addUnique(out,txt,currentArtist);
+    if(out.length>=MAX_RELATED)break;
+  }
+
+  return out;
+}
+
+function collectRelatedFromPage(currentArtist){
+  var related=[];
+  var shelves=document.querySelectorAll(
+    'ytmusic-carousel-shelf-renderer, ytmusic-shelf-renderer, ytmusic-section-list-renderer'
+  );
+
+  for(var i=0;i<shelves.length;i++){
+    var sh=shelves[i];
+    var head=shelfHeaderText(sh).toLowerCase();
+
+    var good =
+      head.indexOf('fans might also like')>-1 ||
+      head.indexOf('similar artists')>-1 ||
+      head.indexOf('related artists')>-1 ||
+      head.indexOf('featured on')>-1;
+
+    if(!good)continue;
+
+    var found=collectLinksInside(sh,currentArtist);
+    for(var x=0;x<found.length;x++){
+      related=addUnique(related,found[x],currentArtist);
+    }
+  }
+
+  return related.slice(0,MAX_RELATED);
+}
+
+function collectVisibleArtistNames(currentArtist){
+  var out=[];
+  var items=document.querySelectorAll('ytmusic-responsive-list-item-renderer');
+
+  for(var i=0;i<items.length;i++){
+    var item=items[i];
+
+    var subtitle =
+      item.querySelector('.secondary-flex-columns')?.innerText ||
+      item.querySelector('.subtitle')?.innerText ||
+      item.innerText ||
+      '';
+
+    subtitle=clean(subtitle);
+
+    if(subtitle.indexOf(' • ')>-1){
+      var parts=subtitle.split(' • ');
+      for(var p=0;p<parts.length;p++){
+        out=addUnique(out,parts[p],currentArtist);
+      }
+    }
+  }
+
+  return out.slice(0,MAX_RELATED);
+}
+
+function learnPage(){
+  var t=currentTrack();
+  var currentArtist=t.artist;
+
+  if(!currentArtist)return;
+
+  var related=collectRelatedFromPage(currentArtist);
+
+  if(!related.length){
+    related=collectVisibleArtistNames(currentArtist);
+  }
+
+  if(!related.length)return;
+
+  var brain=getBrain();
+  var k=keyName(currentArtist);
+
+  if(!brain[k]){
+    brain[k]={
+      name:currentArtist,
+      related:[],
+      tracks:[],
+      learnedFrom:[],
+      lastSeen:now(),
+      confidence:1
+    };
+  }
+
+  for(var i=0;i<related.length;i++){
+    brain[k].related=addUnique(brain[k].related,related[i],currentArtist);
+    rememberRecentArtist(related[i]);
+  }
+
+  if(brain[k].related.length>MAX_RELATED){
+    brain[k].related=brain[k].related.slice(0,MAX_RELATED);
+  }
+
+  brain[k].lastSeen=now();
+  brain[k].confidence=Math.min(10,(brain[k].confidence||1)+1);
+
+  if(brain[k].learnedFrom.indexOf('visible-page')===-1){
+    brain[k].learnedFrom.push('visible-page');
+  }
+
+  saveBrain(brain);
+}
+
+function relatedFor(artist){
+  var brain=getBrain();
+  var k=keyName(artist);
+
+  if(brain[k]&&brain[k].related&&brain[k].related.length){
+    return brain[k].related.slice(0,3).join(' • ');
+  }
+
+  var recent=readJson(RECENT_KEY,[]);
+  var out=[];
+
+  for(var i=0;i<recent.length;i++){
+    out=addUnique(out,recent[i].name,artist);
+    if(out.length>=3)break;
+  }
+
+  return out.join(' • ');
+}
+
+window.KorndogArtistBrain={
+  learnNow:function(){
+    learnTrack();
+    learnPage();
+    return getBrain();
+  },
+  get:function(){return getBrain();},
+  relatedFor:function(artist){return relatedFor(artist);}
+};
+
+function tick(){
+  try{
+    learnTrack();
+    learnPage();
+  }catch(e){}
+}
+
+setInterval(tick,2500);
+setTimeout(tick,800);
+setTimeout(tick,2200);
+setTimeout(tick,5000);
+})();
+""".trimIndent()
+
 val KORNDOG_CAST_SCRIPT = """
 (function(){
 function theme(){
@@ -383,8 +738,23 @@ function openGen(type){
     }
 
     if(type === 'discovery'){
-      var liveSuggestions=suggestedArtists(song.artist);
-      if(liveSuggestions)p.set('soundsLike',liveSuggestions);
+      var liveSuggestions='';
+
+      try{
+        if(window.KorndogArtistBrain){
+          window.KorndogArtistBrain.learnNow();
+          liveSuggestions=window.KorndogArtistBrain.relatedFor(song.artist);
+        }
+      }catch(e){}
+
+      if(!liveSuggestions){
+        liveSuggestions=suggestedArtists(song.artist);
+      }
+
+      if(liveSuggestions){
+        p.set('soundsLike',liveSuggestions);
+        p.set('relatedArtists',liveSuggestions);
+      }
     }
 
     var base = type === 'stream'
