@@ -658,41 +658,70 @@ function suggestedArtists(currentArtist){
   try{
     var names=[];
     var seen={};
-    var bad={
-      'home':1,'explore':1,'library':1,'upgrade':1,'downloads':1,'playlists':1,
-      'songs':1,'albums':1,'videos':1,'artists':1,'podcasts':1,'radio':1,
-      'shuffle':1,'play':1,'start radio':1,'more':1,'next':1,'previous':1
-    };
+
+    var badWords=[
+      'listen again','supermix','even in','playlist','album','song','songs',
+      'video','videos','radio','mix','shuffle','top songs','quick picks',
+      'recommended','new releases','downloads','library','home','explore',
+      'open app','youtube music','lyrics','up next','play','pause',
+      'fans might also like','about','monthly audience','views','subscribers'
+    ];
+
+    function isBad(v){
+      var low=(v||'').toLowerCase().trim();
+      if(!low)return true;
+      if(low===(currentArtist||'').toLowerCase())return true;
+      if(low.length<2||low.length>36)return true;
+
+      for(var i=0;i<badWords.length;i++){
+        if(low.indexOf(badWords[i])>-1)return true;
+      }
+
+      if(/\d+\s*(k|m|b)?\s*(views|plays|subscribers|monthly|audience)/i.test(low))return true;
+      if(/^\d+:\d+$/.test(low))return true;
+
+      return false;
+    }
 
     function add(v){
       v=cleanArtistName(v);
-      if(!v)return;
-      if(v.length<2||v.length>42)return;
+      if(isBad(v))return;
 
       var low=v.toLowerCase();
-      var cur=(currentArtist||'').toLowerCase();
-
-      if(bad[low])return;
-      if(cur&&low===cur)return;
       if(seen[low])return;
 
       seen[low]=true;
       names.push(v);
     }
 
-    var selectors=[
-      'ytmusic-carousel-shelf-renderer a',
-      'ytmusic-responsive-list-item-renderer a',
-      'ytmusic-two-row-item-renderer a',
-      'ytmusic-shelf-renderer a',
-      'a[href*="channel"]',
-      'a[href*="browse"]'
-    ];
+    var shelves=document.querySelectorAll('ytmusic-carousel-shelf-renderer, ytmusic-shelf-renderer');
 
-    for(var s=0;s<selectors.length;s++){
-      var els=document.querySelectorAll(selectors[s]);
-      for(var i=0;i<els.length;i++){
-        var txt=els[i].innerText||els[i].textContent||els[i].getAttribute('title')||'';
+    for(var s=0;s<shelves.length;s++){
+      var sh=shelves[s];
+      var head=(sh.querySelector('.title, yt-formatted-string.title')?.innerText||'').toLowerCase();
+
+      if(
+        head.indexOf('fans might also like')===-1 &&
+        head.indexOf('similar artists')===-1 &&
+        head.indexOf('related artists')===-1
+      ){
+        continue;
+      }
+
+      var cards=sh.querySelectorAll(
+        'ytmusic-two-row-item-renderer a[href*="channel"], ' +
+        'ytmusic-two-row-item-renderer a[href*="browse"], ' +
+        'a[href*="channel"], a[href*="browse"]'
+      );
+
+      for(var i=0;i<cards.length;i++){
+        var txt=
+          cards[i].getAttribute('title') ||
+          cards[i].querySelector('.title')?.innerText ||
+          cards[i].innerText ||
+          cards[i].textContent ||
+          '';
+
         add(txt);
         if(names.length>=3)return names.slice(0,3).join(' • ');
       }
