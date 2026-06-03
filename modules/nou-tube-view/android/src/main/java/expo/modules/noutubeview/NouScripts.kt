@@ -270,9 +270,7 @@ if(window._kdArtistBrainInit)return;
 window._kdArtistBrainInit=true;
 
 var BRAIN_KEY='korndog_artist_brain';
-var RECENT_KEY='korndog_recent_artists';
 var MAX_RELATED=12;
-var MAX_RECENT=60;
 
 function now(){return Date.now();}
 
@@ -392,24 +390,9 @@ function currentTrack(){
   return {title:clean(title),artist:clean(artist)};
 }
 
-function rememberRecentArtist(name){
-  if(isBadName(name,''))return;
-
-  var recent=readJson(RECENT_KEY,[]);
-  var k=keyName(name);
-
-  recent=recent.filter(function(x){return keyName(x.name)!==k;});
-  recent.unshift({name:clean(name),seen:now()});
-
-  if(recent.length>MAX_RECENT)recent=recent.slice(0,MAX_RECENT);
-  writeJson(RECENT_KEY,recent);
-}
-
 function learnTrack(){
   var t=currentTrack();
   if(!t.artist)return;
-
-  rememberRecentArtist(t.artist);
 
   var brain=getBrain();
   var k=keyName(t.artist);
@@ -489,8 +472,7 @@ function collectRelatedFromPage(currentArtist){
     var good =
       head.indexOf('fans might also like')>-1 ||
       head.indexOf('similar artists')>-1 ||
-      head.indexOf('related artists')>-1 ||
-      head.indexOf('featured on')>-1;
+      head.indexOf('related artists')>-1;
 
     if(!good)continue;
 
@@ -503,32 +485,6 @@ function collectRelatedFromPage(currentArtist){
   return related.slice(0,MAX_RELATED);
 }
 
-function collectVisibleArtistNames(currentArtist){
-  var out=[];
-  var items=document.querySelectorAll('ytmusic-responsive-list-item-renderer');
-
-  for(var i=0;i<items.length;i++){
-    var item=items[i];
-
-    var subtitle =
-      item.querySelector('.secondary-flex-columns')?.innerText ||
-      item.querySelector('.subtitle')?.innerText ||
-      item.innerText ||
-      '';
-
-    subtitle=clean(subtitle);
-
-    if(subtitle.indexOf(' • ')>-1){
-      var parts=subtitle.split(' • ');
-      for(var p=0;p<parts.length;p++){
-        out=addUnique(out,parts[p],currentArtist);
-      }
-    }
-  }
-
-  return out.slice(0,MAX_RELATED);
-}
-
 function learnPage(){
   var t=currentTrack();
   var currentArtist=t.artist;
@@ -536,11 +492,6 @@ function learnPage(){
   if(!currentArtist)return;
 
   var related=collectRelatedFromPage(currentArtist);
-
-  if(!related.length){
-    related=collectVisibleArtistNames(currentArtist);
-  }
-
   if(!related.length)return;
 
   var brain=getBrain();
@@ -559,7 +510,6 @@ function learnPage(){
 
   for(var i=0;i<related.length;i++){
     brain[k].related=addUnique(brain[k].related,related[i],currentArtist);
-    rememberRecentArtist(related[i]);
   }
 
   if(brain[k].related.length>MAX_RELATED){
@@ -569,8 +519,8 @@ function learnPage(){
   brain[k].lastSeen=now();
   brain[k].confidence=Math.min(10,(brain[k].confidence||1)+1);
 
-  if(brain[k].learnedFrom.indexOf('visible-page')===-1){
-    brain[k].learnedFrom.push('visible-page');
+  if(brain[k].learnedFrom.indexOf('artist-page')===-1){
+    brain[k].learnedFrom.push('artist-page');
   }
 
   saveBrain(brain);
@@ -584,15 +534,7 @@ function relatedFor(artist){
     return brain[k].related.slice(0,3).join(' • ');
   }
 
-  var recent=readJson(RECENT_KEY,[]);
-  var out=[];
-
-  for(var i=0;i<recent.length;i++){
-    out=addUnique(out,recent[i].name,artist);
-    if(out.length>=3)break;
-  }
-
-  return out.join(' • ');
+  return '';
 }
 
 window.KorndogArtistBrain={
@@ -638,13 +580,6 @@ setInterval(theme,2500);
 
 var STREAMING_BACKGROUND='https://korndogrecords.com/images/korndog-streaming-template-blank.png';
 
-function cleanArtistName(v){
-  return (v||'')
-    .replace(/\s+/g,' ')
-    .replace(/Verified|Artist|Subscribers|Subscribe|Songs|Albums|Videos|Radio/gi,'')
-    .trim();
-}
-
 function latestTrack(){
   try{
     var q=JSON.parse(localStorage.getItem('korndog_queue')||'[]');
@@ -652,85 +587,6 @@ function latestTrack(){
   }catch(e){}
 
   return {title:'',artist:'',album:'',thumb:''};
-}
-
-function suggestedArtists(currentArtist){
-  try{
-    var names=[];
-    var seen={};
-
-    var badWords=[
-      'listen again','supermix','even in','playlist','album','song','songs',
-      'video','videos','radio','mix','shuffle','top songs','quick picks',
-      'recommended','new releases','downloads','library','home','explore',
-      'open app','youtube music','lyrics','up next','play','pause',
-      'fans might also like','about','monthly audience','views','subscribers'
-    ];
-
-    function isBad(v){
-      var low=(v||'').toLowerCase().trim();
-      if(!low)return true;
-      if(low===(currentArtist||'').toLowerCase())return true;
-      if(low.length<2||low.length>36)return true;
-
-      for(var i=0;i<badWords.length;i++){
-        if(low.indexOf(badWords[i])>-1)return true;
-      }
-
-      if(/\d+\s*(k|m|b)?\s*(views|plays|subscribers|monthly|audience)/i.test(low))return true;
-      if(/^\d+:\d+$/.test(low))return true;
-
-      return false;
-    }
-
-    function add(v){
-      v=cleanArtistName(v);
-      if(isBad(v))return;
-
-      var low=v.toLowerCase();
-      if(seen[low])return;
-
-      seen[low]=true;
-      names.push(v);
-    }
-
-    var shelves=document.querySelectorAll('ytmusic-carousel-shelf-renderer, ytmusic-shelf-renderer');
-
-    for(var s=0;s<shelves.length;s++){
-      var sh=shelves[s];
-      var head=(sh.querySelector('.title, yt-formatted-string.title')?.innerText||'').toLowerCase();
-
-      if(
-        head.indexOf('fans might also like')===-1 &&
-        head.indexOf('similar artists')===-1 &&
-        head.indexOf('related artists')===-1
-      ){
-        continue;
-      }
-
-      var cards=sh.querySelectorAll(
-        'ytmusic-two-row-item-renderer a[href*="channel"], ' +
-        'ytmusic-two-row-item-renderer a[href*="browse"], ' +
-        'a[href*="channel"], a[href*="browse"]'
-      );
-
-      for(var i=0;i<cards.length;i++){
-        var txt=
-          cards[i].getAttribute('title') ||
-          cards[i].querySelector('.title')?.innerText ||
-          cards[i].innerText ||
-          cards[i].textContent ||
-          '';
-
-        add(txt);
-        if(names.length>=3)return names.slice(0,3).join(' • ');
-      }
-    }
-
-    return names.slice(0,3).join(' • ');
-  }catch(e){
-    return '';
-  }
 }
 
 function openGen(type){
@@ -775,10 +631,6 @@ function openGen(type){
           liveSuggestions=window.KorndogArtistBrain.relatedFor(song.artist);
         }
       }catch(e){}
-
-      if(!liveSuggestions){
-        liveSuggestions=suggestedArtists(song.artist);
-      }
 
       if(liveSuggestions){
         p.set('soundsLike',liveSuggestions);
@@ -844,35 +696,9 @@ function button(id,emoji,label,bottom,border,glow,type){
 }
 
 function install(){
-  button(
-    'korndog-discovery-btn',
-    '🔍',
-    'Open Zombie Kitty Artist Discovery',
-    216,
-    '#ff3eb5',
-    'rgba(255,62,181,.55)',
-    'discovery'
-  );
-
-  button(
-    'korndog-stream-btn',
-    '🎧',
-    'Open KornDog Streaming Generator',
-    166,
-    '#b000ff',
-    'rgba(176,0,255,.55)',
-    'stream'
-  );
-
-  button(
-    'korndog-tv-btn',
-    '📺',
-    'Open KornDog Vinyl Generator',
-    116,
-    '#39ff14',
-    'rgba(57,255,20,.45)',
-    'vinyl'
-  );
+  button('korndog-discovery-btn','🔍','Open Zombie Kitty Artist Discovery',216,'#ff3eb5','rgba(255,62,181,.55)','discovery');
+  button('korndog-stream-btn','🎧','Open KornDog Streaming Generator',166,'#b000ff','rgba(176,0,255,.55)','stream');
+  button('korndog-tv-btn','📺','Open KornDog Vinyl Generator',116,'#39ff14','rgba(57,255,20,.45)','vinyl');
 }
 
 setTimeout(install,1000);
