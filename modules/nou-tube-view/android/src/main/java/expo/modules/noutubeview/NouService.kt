@@ -85,6 +85,7 @@ class NouService : Service() {
     this.webView = webView
     this.activity = activity
     updateAll()
+    schedulePlayerRefresh()
     Log.d(TAG, "NouService initialized")
   }
 
@@ -102,7 +103,7 @@ class NouService : Service() {
 
   private fun controlAllowed(): Boolean {
     val now = SystemClock.elapsedRealtime()
-    if (now - lastControlAt < 650L) return false
+    if (now - lastControlAt < 500L) return false
     lastControlAt = now
     return true
   }
@@ -150,6 +151,7 @@ class NouService : Service() {
     runPlayerJs(playJs())
     isPlaying = true
     updateAll()
+    schedulePlayerRefresh()
   }
 
   private fun pauseFromControl() {
@@ -164,18 +166,22 @@ class NouService : Service() {
     if (!controlAllowed()) return
     userPausedFromControls = false
     resetPendingTrack()
+    requestAudioFocus()
     runPlayerJs(nextJs())
     isPlaying = true
     updateAll()
+    schedulePlayerRefresh()
   }
 
   private fun previousFromControl() {
     if (!controlAllowed()) return
     userPausedFromControls = false
     resetPendingTrack()
+    requestAudioFocus()
     runPlayerJs(previousJs())
     isPlaying = true
     updateAll()
+    schedulePlayerRefresh()
   }
 
   private fun likeFromControl() {
@@ -206,6 +212,19 @@ class NouService : Service() {
     updateAll()
   }
 
+  private fun schedulePlayerRefresh() {
+    scope.launch {
+      delay(250L)
+      runPlayerJs(refreshNowPlayingJs())
+      delay(600L)
+      runPlayerJs(refreshNowPlayingJs())
+      delay(1200L)
+      runPlayerJs(refreshNowPlayingJs())
+      delay(2200L)
+      runPlayerJs(refreshNowPlayingJs())
+    }
+  }
+
   private fun runPlayerJs(js: String) {
     val wv = webView ?: return
     val act = activity
@@ -233,14 +252,27 @@ class NouService : Service() {
         window._kdUserPaused=false;
         window._kdShouldBePlaying=true;
         localStorage.setItem('kd_user_paused','false');
+
         var media=document.querySelector('video,audio');
         if(media){
           var p=media.play();
           if(p&&p.catch)p.catch(function(){});
           return true;
         }
-        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Play"], ytmusic-player-bar [title="Play"], button[aria-label="Play"], [aria-label="Play"]');
-        if(btn){btn.click();return true;}
+
+        var selectors=[
+          'ytmusic-player-bar button[aria-label="Play"]',
+          'ytmusic-player-bar [title="Play"]',
+          'ytmusic-player-bar tp-yt-paper-icon-button[title="Play"]',
+          'button[aria-label="Play"]',
+          '[aria-label="Play"]',
+          '[title="Play"]'
+        ];
+
+        for(var i=0;i<selectors.length;i++){
+          var btn=document.querySelector(selectors[i]);
+          if(btn){btn.click();return true;}
+        }
       }catch(e){}
       return false;
     })();
@@ -252,13 +284,26 @@ class NouService : Service() {
         window._kdUserPaused=true;
         window._kdShouldBePlaying=false;
         localStorage.setItem('kd_user_paused','true');
+
         var media=document.querySelector('video,audio');
         if(media){
           media.pause();
           return true;
         }
-        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Pause"], ytmusic-player-bar [title="Pause"], button[aria-label="Pause"], [aria-label="Pause"]');
-        if(btn){btn.click();return true;}
+
+        var selectors=[
+          'ytmusic-player-bar button[aria-label="Pause"]',
+          'ytmusic-player-bar [title="Pause"]',
+          'ytmusic-player-bar tp-yt-paper-icon-button[title="Pause"]',
+          'button[aria-label="Pause"]',
+          '[aria-label="Pause"]',
+          '[title="Pause"]'
+        ];
+
+        for(var i=0;i<selectors.length;i++){
+          var btn=document.querySelector(selectors[i]);
+          if(btn){btn.click();return true;}
+        }
       }catch(e){}
       return false;
     })();
@@ -270,8 +315,47 @@ class NouService : Service() {
         window._kdUserPaused=false;
         window._kdShouldBePlaying=true;
         localStorage.setItem('kd_user_paused','false');
-        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Next"], ytmusic-player-bar [title="Next"], button[aria-label="Next"], [aria-label="Next"]');
-        if(btn){btn.click();return true;}
+
+        var selectors=[
+          'ytmusic-player-bar button[aria-label="Next"]',
+          'ytmusic-player-bar button[aria-label^="Next"]',
+          'ytmusic-player-bar [aria-label="Next"]',
+          'ytmusic-player-bar [aria-label^="Next"]',
+          'ytmusic-player-bar tp-yt-paper-icon-button[title="Next"]',
+          'ytmusic-player-bar [title="Next"]',
+          'button[aria-label="Next"]',
+          'button[aria-label^="Next"]',
+          '[aria-label="Next"]',
+          '[aria-label^="Next"]',
+          '[title="Next"]',
+          '.next-button',
+          '#next-button'
+        ];
+
+        for(var i=0;i<selectors.length;i++){
+          var btn=document.querySelector(selectors[i]);
+          if(btn){
+            btn.click();
+            setTimeout(function(){
+              try{
+                var media=document.querySelector('video,audio');
+                if(media){
+                  var p=media.play();
+                  if(p&&p.catch)p.catch(function(){});
+                }
+              }catch(e){}
+            },250);
+            return true;
+          }
+        }
+
+        try{
+          var media=document.querySelector('video,audio');
+          if(media && media.fastSeek && isFinite(media.duration)){
+            media.fastSeek(Math.max(0, media.duration - 1));
+            return true;
+          }
+        }catch(e){}
       }catch(e){}
       return false;
     })();
@@ -283,10 +367,119 @@ class NouService : Service() {
         window._kdUserPaused=false;
         window._kdShouldBePlaying=true;
         localStorage.setItem('kd_user_paused','false');
-        var btn=document.querySelector('ytmusic-player-bar button[aria-label="Previous"], ytmusic-player-bar [title="Previous"], button[aria-label="Previous"], [aria-label="Previous"]');
-        if(btn){btn.click();return true;}
+
+        var selectors=[
+          'ytmusic-player-bar button[aria-label="Previous"]',
+          'ytmusic-player-bar button[aria-label^="Previous"]',
+          'ytmusic-player-bar [aria-label="Previous"]',
+          'ytmusic-player-bar [aria-label^="Previous"]',
+          'ytmusic-player-bar tp-yt-paper-icon-button[title="Previous"]',
+          'ytmusic-player-bar [title="Previous"]',
+          'button[aria-label="Previous"]',
+          'button[aria-label^="Previous"]',
+          '[aria-label="Previous"]',
+          '[aria-label^="Previous"]',
+          '[title="Previous"]',
+          '.previous-button',
+          '#previous-button'
+        ];
+
+        for(var i=0;i<selectors.length;i++){
+          var btn=document.querySelector(selectors[i]);
+          if(btn){
+            btn.click();
+            setTimeout(function(){
+              try{
+                var media=document.querySelector('video,audio');
+                if(media){
+                  var p=media.play();
+                  if(p&&p.catch)p.catch(function(){});
+                }
+              }catch(e){}
+            },250);
+            return true;
+          }
+        }
+
+        try{
+          var media=document.querySelector('video,audio');
+          if(media){
+            media.currentTime=0;
+            var p=media.play();
+            if(p&&p.catch)p.catch(function(){});
+            return true;
+          }
+        }catch(e){}
       }catch(e){}
       return false;
+    })();
+  """.trimIndent()
+
+  private fun refreshNowPlayingJs(): String = """
+    (function(){
+      try{
+        function clean(t){
+          return (t||'')
+            .replace(/\s+/g,' ')
+            .replace(/Explicit|Video/g,'')
+            .trim();
+        }
+
+        function up(u){
+          if(!u)return'';
+          return u
+            .replace(/=w[0-9]+-h[0-9]+.*$/i,'=w800-h800-l90-rj')
+            .replace(/\/s[0-9]+\//i,'/s800/');
+        }
+
+        function thumb(){
+          var spots=[
+            'ytmusic-player-bar img',
+            '.player-bar img',
+            '.miniplayer img'
+          ];
+
+          for(var x=0;x<spots.length;x++){
+            var im=document.querySelector(spots[x]);
+            if(im){
+              var src=im.currentSrc||im.src||'';
+              if(src&&(src.indexOf('ytimg')>-1||src.indexOf('googleusercontent')>-1))return up(src);
+            }
+          }
+
+          return '';
+        }
+
+        var media=document.querySelector('video,audio');
+        var seconds=0;
+        if(media&&isFinite(media.duration))seconds=Math.floor(media.duration||0);
+
+        var te=
+          document.querySelector('ytmusic-player-bar .title')||
+          document.querySelector('.title.ytmusic-player-bar');
+
+        var ae=
+          document.querySelector('ytmusic-player-bar .subtitle')||
+          document.querySelector('.subtitle.ytmusic-player-bar');
+
+        var title=te?clean(te.innerText||te.textContent):'';
+        var artist=ae?clean(ae.innerText||ae.textContent):'';
+
+        if(artist.indexOf(' • ')>-1)artist=artist.split(' • ')[0].trim();
+        if(artist.indexOf(' - ')>-1)artist=artist.split(' - ')[0].trim();
+
+        if(title&&artist&&window.NouTubeI&&window.NouTubeI.notify){
+          window.NouTubeI.notify(title,artist,seconds,thumb());
+        }
+
+        if(media&&window.NouTubeI&&window.NouTubeI.notifyProgress){
+          window.NouTubeI.notifyProgress(!media.paused,Math.floor(media.currentTime||0));
+        }
+
+        if(window.__kdDetectLiked&&window.NouTubeI&&window.NouTubeI.notifyLikeState){
+          window.NouTubeI.notifyLikeState(window.__kdDetectLiked());
+        }
+      }catch(e){}
     })();
   """.trimIndent()
 
@@ -564,12 +757,12 @@ class NouService : Service() {
         return
       }
 
-      if (now - pendingSince < 900L) {
+      if (now - pendingSince < 500L) {
         return
       }
     }
 
-    if (now - lastNotifyAt < 350L && incomingKey == lastAcceptedTrackKey) {
+    if (now - lastNotifyAt < 250L && incomingKey == lastAcceptedTrackKey) {
       return
     }
 
