@@ -45,8 +45,7 @@ function thumb(){
     'ytmusic-player-bar img',
     'ytmusic-player img',
     '.player-bar img',
-    '.miniplayer img',
-    'ytmusic-player-page img'
+    '.miniplayer img'
   ];
 
   for(var x=0;x<spots.length;x++){
@@ -57,9 +56,6 @@ function thumb(){
     }
   }
 
-  var og=document.querySelector('meta[property="og:image"],meta[name="twitter:image"]');
-  if(og&&og.content)return up(og.content);
-
   var a=q();
   return a.length&&a[0].thumb?a[0].thumb:'';
 }
@@ -69,15 +65,15 @@ function info(){
 
   if(m&&isFinite(m.duration))seconds=Math.floor(m.duration||0);
 
-  var te=document.querySelector('ytmusic-player-bar .title')||
-    document.querySelector('.content-info-wrapper .title')||
-    document.querySelector('ytmusic-player-page .title');
+  var te=
+    document.querySelector('ytmusic-player-bar .title')||
+    document.querySelector('.title.ytmusic-player-bar');
 
   if(te)title=clean(te.innerText||te.textContent);
 
-  var ae=document.querySelector('ytmusic-player-bar .subtitle')||
-    document.querySelector('.content-info-wrapper .subtitle')||
-    document.querySelector('ytmusic-player-page .subtitle');
+  var ae=
+    document.querySelector('ytmusic-player-bar .subtitle')||
+    document.querySelector('.subtitle.ytmusic-player-bar');
 
   var rawArtist='';
   if(ae)rawArtist=clean(ae.innerText||ae.textContent);
@@ -189,6 +185,89 @@ setTimeout(tick,5000);
 })();
 """.trimIndent()
 
+val KORNDOG_TAP_SMOOTHER_SCRIPT = """
+(function(){
+if(window._kdTapSmootherInit)return;
+window._kdTapSmootherInit=true;
+
+function isKorndogButton(el){
+  return !!(el && el.closest && el.closest('#korndog-discovery-btn,#korndog-stream-btn,#korndog-tv-btn'));
+}
+
+function isControl(el){
+  return !!(el && el.closest && el.closest('button,a,tp-yt-paper-icon-button,ytmusic-menu-renderer,input,textarea,select'));
+}
+
+function playableRow(el){
+  if(!el||!el.closest)return null;
+  return el.closest(
+    'ytmusic-responsive-list-item-renderer,'+
+    'ytmusic-two-row-item-renderer,'+
+    'ytmusic-player-queue-item'
+  );
+}
+
+function currentKey(){
+  try{
+    var t=document.querySelector('ytmusic-player-bar .title,.title.ytmusic-player-bar');
+    var a=document.querySelector('ytmusic-player-bar .subtitle,.subtitle.ytmusic-player-bar');
+    return ((t&&(t.innerText||t.textContent))||'')+'|'+((a&&(a.innerText||a.textContent))||'');
+  }catch(e){return''}
+}
+
+function css(){
+  var old=document.getElementById('korndog-tap-smoother-style');
+  if(old)old.remove();
+
+  var s=document.createElement('style');
+  s.id='korndog-tap-smoother-style';
+  s.textContent=
+    'ytmusic-responsive-list-item-renderer,'+
+    'ytmusic-two-row-item-renderer,'+
+    'ytmusic-player-queue-item{'+
+      'touch-action:manipulation!important;'+
+      '-webkit-tap-highlight-color:rgba(57,255,20,.22)!important;'+
+      'cursor:pointer!important;'+
+    '}'+
+    '#korndog-discovery-btn,#korndog-stream-btn,#korndog-tv-btn{'+
+      'pointer-events:auto!important;'+
+      'touch-action:manipulation!important;'+
+    '}';
+  document.head.appendChild(s);
+}
+
+document.addEventListener('pointerup',function(e){
+  try{
+    if(isKorndogButton(e.target))return;
+    if(isControl(e.target))return;
+
+    var row=playableRow(e.target);
+    if(!row)return;
+
+    var before=currentKey();
+
+    setTimeout(function(){
+      try{
+        var after=currentKey();
+        if(after&&before&&after!==before)return;
+
+        var playTarget =
+          row.querySelector('yt-formatted-string.title')||
+          row.querySelector('.title')||
+          row.querySelector('a')||
+          row;
+
+        if(playTarget) playTarget.click();
+      }catch(err){}
+    },220);
+  }catch(err){}
+},true);
+
+css();
+setInterval(css,3000);
+})();
+""".trimIndent()
+
 val KORNDOG_CLICKABLE_PLAYER_SCRIPT = """
 (function () {
   if (window.__korndogClickablePlayerInstalled) return;
@@ -198,69 +277,112 @@ val KORNDOG_CLICKABLE_PLAYER_SCRIPT = """
     return (v || "").replace(/\s+/g, " ").trim();
   }
 
-  function getTrackData() {
-    let title =
-      document.querySelector(".title.ytmusic-player-bar")?.innerText ||
-      document.querySelector("ytmusic-player-bar .title")?.innerText ||
-      "";
-
-    let artist =
-      document.querySelector(".subtitle.ytmusic-player-bar")?.innerText ||
-      document.querySelector("ytmusic-player-bar .subtitle")?.innerText ||
-      "";
-
-    title = cleanText(title);
-    artist = cleanText(artist).split("•")[0].trim();
-
-    return { title, artist };
+  function firstText(selectors) {
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) {
+        var txt = cleanText(el.innerText || el.textContent || "");
+        if (txt) return txt;
+      }
+    }
+    return "";
   }
 
-  function goArtist() {
-    const data = getTrackData();
-    if (!data.artist) return;
+  function getTrackData() {
+    var title = firstText([
+      "ytmusic-player-bar .title",
+      ".title.ytmusic-player-bar",
+      "ytmusic-player-page .title",
+      ".content-info-wrapper .title"
+    ]);
+
+    var artist = firstText([
+      "ytmusic-player-bar .subtitle",
+      ".subtitle.ytmusic-player-bar",
+      "ytmusic-player-page .subtitle",
+      ".content-info-wrapper .subtitle"
+    ]);
+
+    artist = cleanText(artist).split("•")[0].split(" - ")[0].trim();
+
+    return { title: title, artist: artist };
+  }
+
+  function goArtist(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    var data = getTrackData();
+    if (!data.artist) return false;
 
     location.href =
       "https://music.youtube.com/search?q=" +
       encodeURIComponent(data.artist);
+
+    return false;
   }
 
-  function goAlbumSong() {
-    const data = getTrackData();
-    if (!data.title && !data.artist) return;
+  function goAlbumSong(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    var data = getTrackData();
+    if (!data.title && !data.artist) return false;
 
     location.href =
       "https://music.youtube.com/search?q=" +
       encodeURIComponent(data.artist + " " + data.title + " album");
+
+    return false;
+  }
+
+  function markClickable(el, type) {
+    if (!el || el.dataset.korndogClickable === type) return;
+
+    el.dataset.korndogClickable = type;
+    el.style.cursor = "pointer";
+    el.style.textDecoration = "underline";
+    el.style.textUnderlineOffset = "3px";
+    el.style.textDecorationThickness = "2px";
+    el.style.textDecorationColor = type === "title" ? "#39ff14" : "#b000ff";
+
+    el.onclick = type === "title" ? goAlbumSong : goArtist;
   }
 
   function wireClicks() {
-    const titleEl =
-      document.querySelector(".title.ytmusic-player-bar") ||
-      document.querySelector("ytmusic-player-bar .title");
+    var titleSelectors = [
+      "ytmusic-player-bar .title",
+      ".title.ytmusic-player-bar",
+      "ytmusic-player-page .title",
+      ".content-info-wrapper .title"
+    ];
 
-    const artistEl =
-      document.querySelector(".subtitle.ytmusic-player-bar") ||
-      document.querySelector("ytmusic-player-bar .subtitle");
+    var artistSelectors = [
+      "ytmusic-player-bar .subtitle",
+      ".subtitle.ytmusic-player-bar",
+      "ytmusic-player-page .subtitle",
+      ".content-info-wrapper .subtitle"
+    ];
 
-    if (titleEl && !titleEl.dataset.korndogClickable) {
-      titleEl.dataset.korndogClickable = "true";
-      titleEl.style.cursor = "pointer";
-      titleEl.style.textDecoration = "underline";
-      titleEl.style.textDecorationColor = "#39ff14";
-      titleEl.onclick = goAlbumSong;
-    }
+    titleSelectors.forEach(function(sel) {
+      document.querySelectorAll(sel).forEach(function(el) {
+        markClickable(el, "title");
+      });
+    });
 
-    if (artistEl && !artistEl.dataset.korndogClickable) {
-      artistEl.dataset.korndogClickable = "true";
-      artistEl.style.cursor = "pointer";
-      artistEl.style.textDecoration = "underline";
-      artistEl.style.textDecorationColor = "#b000ff";
-      artistEl.onclick = goArtist;
-    }
+    artistSelectors.forEach(function(sel) {
+      document.querySelectorAll(sel).forEach(function(el) {
+        markClickable(el, "artist");
+      });
+    });
   }
 
   wireClicks();
-  setInterval(wireClicks, 1500);
+  setInterval(wireClicks, 1000);
 })();
 """
 
@@ -370,15 +492,13 @@ function currentTrack(){
 
   if(!title){
     var te=document.querySelector('ytmusic-player-bar .title')||
-      document.querySelector('.content-info-wrapper .title')||
-      document.querySelector('ytmusic-player-page .title');
+      document.querySelector('.title.ytmusic-player-bar');
     if(te)title=clean(te.innerText||te.textContent);
   }
 
   if(!artist){
     var ae=document.querySelector('ytmusic-player-bar .subtitle')||
-      document.querySelector('.content-info-wrapper .subtitle')||
-      document.querySelector('ytmusic-player-page .subtitle');
+      document.querySelector('.subtitle.ytmusic-player-bar');
 
     if(ae){
       artist=clean(ae.innerText||ae.textContent);
