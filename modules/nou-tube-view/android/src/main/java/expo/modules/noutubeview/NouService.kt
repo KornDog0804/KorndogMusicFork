@@ -827,9 +827,9 @@ class NouService : Service() {
 
     if (pos >= 0L) {
       val posMs = pos * 1000L
-      val justChanged = now - lastTrackChangedAt < 1300L
+      val justChanged = now - lastTrackChangedAt < 3000L
 
-      currentPosition = if (justChanged && posMs > 4000L) {
+      currentPosition = if (justChanged && posMs > 3000L) {
         0L
       } else {
         posMs
