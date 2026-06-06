@@ -40,6 +40,7 @@ class NouService : Service() {
   private var pendingSince = 0L
   private var lastAcceptedTrackKey = ""
   private var lastNotifyAt = 0L
+  private var lastTrackChangedAt = 0L
 
   private var notificationManager: NotificationManager? = null
   private var audioManager: AudioManager? = null
@@ -166,6 +167,8 @@ class NouService : Service() {
     if (!controlAllowed()) return
     userPausedFromControls = false
     resetPendingTrack()
+    currentPosition = 0L
+    lastTrackChangedAt = SystemClock.elapsedRealtime()
     requestAudioFocus()
     runPlayerJs(nextJs())
     isPlaying = true
@@ -177,6 +180,8 @@ class NouService : Service() {
     if (!controlAllowed()) return
     userPausedFromControls = false
     resetPendingTrack()
+    currentPosition = 0L
+    lastTrackChangedAt = SystemClock.elapsedRealtime()
     requestAudioFocus()
     runPlayerJs(previousJs())
     isPlaying = true
@@ -340,6 +345,7 @@ class NouService : Service() {
               try{
                 var media=document.querySelector('video,audio');
                 if(media){
+                  media.currentTime = Math.max(0, media.currentTime || 0);
                   var p=media.play();
                   if(p&&p.catch)p.catch(function(){});
                 }
@@ -745,8 +751,9 @@ class NouService : Service() {
 
     val incomingKey = "$cleanTitle|$cleanArtist|$thumbnail"
     val now = SystemClock.elapsedRealtime()
+    val trackChanged = incomingKey != lastAcceptedTrackKey
 
-    if (incomingKey != lastAcceptedTrackKey) {
+    if (trackChanged) {
       val pendingKey = "$pendingTitle|$pendingArtist|$pendingThumb"
 
       if (incomingKey != pendingKey) {
@@ -762,19 +769,26 @@ class NouService : Service() {
       }
     }
 
-    if (now - lastNotifyAt < 250L && incomingKey == lastAcceptedTrackKey) {
+    if (now - lastNotifyAt < 250L && !trackChanged) {
       return
     }
 
     lastNotifyAt = now
-    lastAcceptedTrackKey = incomingKey
 
+    if (trackChanged) {
+      currentPosition = 0L
+      lastTrackChangedAt = now
+    }
+
+    lastAcceptedTrackKey = incomingKey
     currentTitle = cleanTitle
     currentArtist = cleanArtist
     resetPendingTrack()
 
     currentDuration = if (seconds > 0L) {
       seconds * 1000L
+    } else if (trackChanged) {
+      5 * 60 * 1000L
     } else if (currentDuration > 0L) {
       currentDuration
     } else {
@@ -802,6 +816,8 @@ class NouService : Service() {
   }
 
   fun notifyProgress(playing: Boolean, pos: Long) {
+    val now = SystemClock.elapsedRealtime()
+
     if (playing) {
       isPlaying = true
       userPausedFromControls = false
@@ -810,7 +826,14 @@ class NouService : Service() {
     }
 
     if (pos >= 0L) {
-      currentPosition = pos * 1000L
+      val posMs = pos * 1000L
+      val justChanged = now - lastTrackChangedAt < 1300L
+
+      currentPosition = if (justChanged && posMs > 4000L) {
+        0L
+      } else {
+        posMs
+      }
     }
 
     if (currentDuration <= 0L) {
