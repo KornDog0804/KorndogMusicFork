@@ -14,7 +14,7 @@ import { isAndroid, nIf } from '@/lib/utils'
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'
 
 type Phase = 'idle' | 'loading' | 'choosing' | 'error'
-type DownloadKind = 'song' | 'album' | 'unsupportedPlaylist'
+type DownloadKind = 'song' | 'album' | 'playlist'
 
 function getDownloadKind(targetUrl: string): DownloadKind {
   const lower = targetUrl.toLowerCase()
@@ -34,19 +34,20 @@ function getDownloadKind(targetUrl: string): DownloadKind {
     lower.includes('list=lm') ||
     lower.includes('playlist?list=')
 
-  if (isPlaylist) return 'unsupportedPlaylist'
+  if (isPlaylist) return 'playlist'
 
   return 'song'
 }
 
 function getModalTitle(kind: DownloadKind) {
   if (kind === 'album') return 'Download album'
-  if (kind === 'unsupportedPlaylist') return 'Playlist downloads disabled'
+  if (kind === 'playlist') return 'Download playlist'
   return 'Download song'
 }
 
 function getSavedMessage(kind: DownloadKind) {
   if (kind === 'album') return 'Saved album to Music/NouTube'
+  if (kind === 'playlist') return 'Saved playlist to Music/NouTube'
   return 'Saved song to Music/NouTube'
 }
 
@@ -55,6 +56,14 @@ function upgradeFormatLabel(opt: FormatOption, kind: DownloadKind): FormatOption
     return {
       ...opt,
       label: 'Download Full Album',
+      description: 'Best available YouTube Music audio saved to Music/NouTube',
+    }
+  }
+
+  if (kind === 'playlist') {
+    return {
+      ...opt,
+      label: 'Download Full Playlist',
       description: 'Best available YouTube Music audio saved to Music/NouTube',
     }
   }
@@ -101,12 +110,6 @@ export const ToolsModal = () => {
     setParsedTitle('')
     setErrorMsg('')
 
-    if (kind === 'unsupportedPlaylist') {
-      setPhase('error')
-      setErrorMsg('Playlist downloads are disabled for now so we do not accidentally pull huge playlists. Open an album or song instead.')
-      return
-    }
-
     mainClient
       .listFormats(trimmedUrl)
       .then((result) => {
@@ -149,12 +152,6 @@ export const ToolsModal = () => {
   const handleDownload = (formatId: string) => {
     const targetUrl = (toolsModalUrl || url).trim()
     const kind = getDownloadKind(targetUrl)
-
-    if (kind === 'unsupportedPlaylist') {
-      setPhase('error')
-      setErrorMsg('Playlist downloads are disabled. Use song or album downloads only.')
-      return
-    }
 
     downloads$[targetUrl].set({
       url: targetUrl,
@@ -208,6 +205,14 @@ export const ToolsModal = () => {
             placeholderTextColor={isDark ? '#71717a' : '#a1a1aa'}
           />
         </View>
+
+        {downloadKind === 'playlist' && (
+          <View className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3">
+            <NouText className="text-sm text-amber-800 dark:text-amber-200 font-medium">
+              Playlist detected. Big playlists can take a while and use more storage.
+            </NouText>
+          </View>
+        )}
 
         {nIf(
           !isAndroid && (phase === 'idle' || phase === 'choosing'),
