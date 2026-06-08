@@ -38,9 +38,12 @@ class NouService : Service() {
   private var pendingArtist = ""
   private var pendingThumb = ""
   private var pendingSince = 0L
-  private var lastAcceptedTrackKey = ""
+
+  private var lastAcceptedTrackIdentity = ""
+  private var lastAcceptedArtworkKey = ""
   private var lastNotifyAt = 0L
   private var lastTrackChangedAt = 0L
+  private var lastProgressAcceptedAt = 0L
 
   private var notificationManager: NotificationManager? = null
   private var audioManager: AudioManager? = null
@@ -129,10 +132,7 @@ class NouService : Service() {
       override fun onSkipToNext() { nextFromControl() }
       override fun onSkipToPrevious() { previousFromControl() }
       override fun onSeekTo(pos: Long) { seekFromControl(pos) }
-
-      override fun onSetRating(rating: RatingCompat?) {
-        likeFromControl()
-      }
+      override fun onSetRating(rating: RatingCompat?) { likeFromControl() }
 
       override fun onCustomAction(action: String?, extras: Bundle?) {
         when (action) {
@@ -167,8 +167,7 @@ class NouService : Service() {
     if (!controlAllowed()) return
     userPausedFromControls = false
     resetPendingTrack()
-    currentPosition = 0L
-    lastTrackChangedAt = SystemClock.elapsedRealtime()
+    forceTrackReset()
     requestAudioFocus()
     runPlayerJs(nextJs())
     isPlaying = true
@@ -180,8 +179,7 @@ class NouService : Service() {
     if (!controlAllowed()) return
     userPausedFromControls = false
     resetPendingTrack()
-    currentPosition = 0L
-    lastTrackChangedAt = SystemClock.elapsedRealtime()
+    forceTrackReset()
     requestAudioFocus()
     runPlayerJs(previousJs())
     isPlaying = true
@@ -192,8 +190,7 @@ class NouService : Service() {
   private fun likeFromControl() {
     if (!controlAllowed()) return
 
-    val optimisticLiked = !isLiked
-    isLiked = optimisticLiked
+    isLiked = !isLiked
     updateAll()
 
     runPlayerJs(likeJs())
@@ -213,19 +210,31 @@ class NouService : Service() {
   private fun seekFromControl(posMs: Long) {
     val safeMs = if (posMs < 0L) 0L else posMs
     currentPosition = safeMs
+    lastProgressAcceptedAt = SystemClock.elapsedRealtime()
     runPlayerJs(seekJs(safeMs / 1000L))
     updateAll()
   }
 
+  private fun forceTrackReset() {
+    val now = SystemClock.elapsedRealtime()
+    currentPosition = 0L
+    lastTrackChangedAt = now
+    lastProgressAcceptedAt = now
+  }
+
   private fun schedulePlayerRefresh() {
     scope.launch {
-      delay(250L)
+      delay(200L)
       runPlayerJs(refreshNowPlayingJs())
-      delay(600L)
+      delay(450L)
+      runPlayerJs(refreshNowPlayingJs())
+      delay(750L)
       runPlayerJs(refreshNowPlayingJs())
       delay(1200L)
       runPlayerJs(refreshNowPlayingJs())
       delay(2200L)
+      runPlayerJs(refreshNowPlayingJs())
+      delay(3500L)
       runPlayerJs(refreshNowPlayingJs())
     }
   }
@@ -345,7 +354,6 @@ class NouService : Service() {
               try{
                 var media=document.querySelector('video,audio');
                 if(media){
-                  media.currentTime = Math.max(0, media.currentTime || 0);
                   var p=media.play();
                   if(p&&p.catch)p.catch(function(){});
                 }
@@ -442,7 +450,8 @@ class NouService : Service() {
           var spots=[
             'ytmusic-player-bar img',
             '.player-bar img',
-            '.miniplayer img'
+            '.miniplayer img',
+            'ytmusic-player-page img'
           ];
 
           for(var x=0;x<spots.length;x++){
@@ -458,28 +467,38 @@ class NouService : Service() {
 
         var media=document.querySelector('video,audio');
         var seconds=0;
-        if(media&&isFinite(media.duration))seconds=Math.floor(media.duration||0);
+        var pos=0;
+
+        if(media){
+          if(isFinite(media.duration))seconds=Math.floor(media.duration||0);
+          if(isFinite(media.currentTime))pos=Math.floor(media.currentTime||0);
+        }
 
         var te=
           document.querySelector('ytmusic-player-bar .title')||
-          document.querySelector('.title.ytmusic-player-bar');
+          document.querySelector('.title.ytmusic-player-bar')||
+          document.querySelector('.content-info-wrapper .title')||
+          document.querySelector('ytmusic-player-page .title');
 
         var ae=
           document.querySelector('ytmusic-player-bar .subtitle')||
-          document.querySelector('.subtitle.ytmusic-player-bar');
+          document.querySelector('.subtitle.ytmusic-player-bar')||
+          document.querySelector('.content-info-wrapper .subtitle')||
+          document.querySelector('ytmusic-player-page .subtitle');
 
         var title=te?clean(te.innerText||te.textContent):'';
         var artist=ae?clean(ae.innerText||ae.textContent):'';
 
         if(artist.indexOf(' • ')>-1)artist=artist.split(' • ')[0].trim();
         if(artist.indexOf(' - ')>-1)artist=artist.split(' - ')[0].trim();
+        if(artist.indexOf(' · ')>-1)artist=artist.split(' · ')[0].trim();
 
         if(title&&artist&&window.NouTubeI&&window.NouTubeI.notify){
           window.NouTubeI.notify(title,artist,seconds,thumb());
         }
 
         if(media&&window.NouTubeI&&window.NouTubeI.notifyProgress){
-          window.NouTubeI.notifyProgress(!media.paused,Math.floor(media.currentTime||0));
+          window.NouTubeI.notifyProgress(!media.paused,pos);
         }
 
         if(window.__kdDetectLiked&&window.NouTubeI&&window.NouTubeI.notifyLikeState){
@@ -745,18 +764,17 @@ class NouService : Service() {
     val cleanTitle = cleanTitle(title)
     val cleanArtist = cleanArtist(author)
 
-    if (cleanTitle.isBlank() || cleanArtist.isBlank()) {
-      return
-    }
+    if (cleanTitle.isBlank() || cleanArtist.isBlank()) return
 
-    val incomingKey = "$cleanTitle|$cleanArtist|$thumbnail"
+    val incomingIdentity = "$cleanTitle|$cleanArtist"
+    val incomingArtworkKey = "$incomingIdentity|$thumbnail"
     val now = SystemClock.elapsedRealtime()
-    val trackChanged = incomingKey != lastAcceptedTrackKey
+    val trackChanged = incomingIdentity != lastAcceptedTrackIdentity
 
     if (trackChanged) {
-      val pendingKey = "$pendingTitle|$pendingArtist|$pendingThumb"
+      val pendingIdentity = "$pendingTitle|$pendingArtist"
 
-      if (incomingKey != pendingKey) {
+      if (incomingIdentity != pendingIdentity) {
         pendingTitle = cleanTitle
         pendingArtist = cleanArtist
         pendingThumb = thumbnail
@@ -764,40 +782,27 @@ class NouService : Service() {
         return
       }
 
-      if (now - pendingSince < 500L) {
-        return
-      }
+      if (now - pendingSince < 500L) return
     }
 
-    if (now - lastNotifyAt < 250L && !trackChanged) {
-      return
-    }
+    if (now - lastNotifyAt < 250L && !trackChanged) return
 
     lastNotifyAt = now
 
     if (trackChanged) {
-      currentPosition = 0L
-      lastTrackChangedAt = now
+      forceTrackReset()
+      currentDuration = if (seconds > 0L) seconds * 1000L else 5 * 60 * 1000L
+    } else if (seconds > 0L) {
+      currentDuration = seconds * 1000L
     }
 
-    lastAcceptedTrackKey = incomingKey
+    lastAcceptedTrackIdentity = incomingIdentity
+    lastAcceptedArtworkKey = incomingArtworkKey
     currentTitle = cleanTitle
     currentArtist = cleanArtist
     resetPendingTrack()
 
-    currentDuration = if (seconds > 0L) {
-      seconds * 1000L
-    } else if (trackChanged) {
-      5 * 60 * 1000L
-    } else if (currentDuration > 0L) {
-      currentDuration
-    } else {
-      5 * 60 * 1000L
-    }
-
-    if (!userPausedFromControls) {
-      isPlaying = true
-    }
+    if (!userPausedFromControls) isPlaying = true
 
     runPlayerJs(checkLikeStateJs())
 
@@ -826,19 +831,31 @@ class NouService : Service() {
     }
 
     if (pos >= 0L) {
-      val posMs = pos * 1000L
-      val justChanged = now - lastTrackChangedAt < 3000L
+      val incomingMs = pos * 1000L
+      val elapsedSinceTrackChange = if (lastTrackChangedAt > 0L) now - lastTrackChangedAt else Long.MAX_VALUE
+      val expectedMaxEarlyPosition = elapsedSinceTrackChange + 7000L
 
-      currentPosition = if (justChanged && posMs > 3000L) {
-        0L
-      } else {
-        posMs
+      val looksLikeOldSongPosition =
+        lastTrackChangedAt > 0L &&
+          elapsedSinceTrackChange < 90_000L &&
+          incomingMs > expectedMaxEarlyPosition &&
+          incomingMs > 10_000L
+
+      val giantJumpForward =
+        currentPosition > 0L &&
+          incomingMs > currentPosition + 45_000L &&
+          now - lastProgressAcceptedAt < 10_000L
+
+      val realReset =
+        incomingMs <= 3000L || incomingMs < currentPosition - 5000L
+
+      if (realReset || (!looksLikeOldSongPosition && !giantJumpForward)) {
+        currentPosition = incomingMs
+        lastProgressAcceptedAt = now
       }
     }
 
-    if (currentDuration <= 0L) {
-      currentDuration = 5 * 60 * 1000L
-    }
+    if (currentDuration <= 0L) currentDuration = 5 * 60 * 1000L
 
     updateAll()
   }
