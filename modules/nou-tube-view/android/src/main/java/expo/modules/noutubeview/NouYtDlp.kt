@@ -19,7 +19,9 @@ internal class NouYtDlp(private val context: Context) {
     @Volatile private var ffmpegInitialized = false
 
     private const val DOWNLOAD_RELATIVE_PATH = "Music/NouTube"
-    private const val AUDIO_FORMAT_ID = "bestaudio[ext=m4a]/bestaudio/best"
+
+    private const val SINGLE_AUDIO_FORMAT_ID = "bestaudio[ext=m4a]/bestaudio/best"
+    private const val PLAYLIST_AUDIO_FORMAT_ID = "bestaudio/best"
   }
 
   data class DownloadResult(
@@ -62,7 +64,7 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--no-playlist")
     request.addOption("-R", "1")
     request.addOption("--socket-timeout", "15")
-    request.addOption("-f", AUDIO_FORMAT_ID)
+    request.addOption("-f", SINGLE_AUDIO_FORMAT_ID)
 
     val response = YoutubeDL.getInstance().execute(request)
     val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty output"))
@@ -135,15 +137,21 @@ internal class NouYtDlp(private val context: Context) {
     ensureYoutubeDLInitialized()
 
     val isAlbumOrPlaylist = isAlbumOrPlaylistUrl(url)
+    val formatId = if (isAlbumOrPlaylist) PLAYLIST_AUDIO_FORMAT_ID else SINGLE_AUDIO_FORMAT_ID
 
     val request = YoutubeDLRequest(url)
     request.addOption("--dump-json")
+
     if (!isAlbumOrPlaylist) {
       request.addOption("--no-playlist")
+    } else {
+      request.addOption("--yes-playlist")
+      request.addOption("--flat-playlist")
     }
+
     request.addOption("-R", "1")
     request.addOption("--socket-timeout", "10")
-    request.addOption("-f", AUDIO_FORMAT_ID)
+    request.addOption("-f", formatId)
 
     val response = YoutubeDL.getInstance().execute(request)
     val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty format output"))
@@ -157,10 +165,10 @@ internal class NouYtDlp(private val context: Context) {
 
     options.add(
       mapOf(
-        "formatId" to AUDIO_FORMAT_ID,
-        "label" to if (isAlbumOrPlaylist) "Album / Playlist (Best quality)" else "Audio only (Best quality)",
+        "formatId" to formatId,
+        "label" to if (isAlbumOrPlaylist) "Album / Playlist (Best available)" else "Audio only (Best quality)",
         "description" to if (isAlbumOrPlaylist) {
-          "Download all tracks as best available YouTube Music audio"
+          "Download all tracks as best available audio, then convert to M4A"
         } else {
           "Best available YouTube Music audio with album art"
         },
@@ -189,12 +197,14 @@ internal class NouYtDlp(private val context: Context) {
 
     val request = YoutubeDLRequest(url)
 
-    val safeFormatId = if (
+    val safeFormatId = if (isAlbumOrPlaylist) {
+      PLAYLIST_AUDIO_FORMAT_ID
+    } else if (
       formatId.isBlank() ||
       formatId == "playlist" ||
       formatId == "album"
     ) {
-      AUDIO_FORMAT_ID
+      SINGLE_AUDIO_FORMAT_ID
     } else {
       formatId
     }
@@ -204,6 +214,7 @@ internal class NouYtDlp(private val context: Context) {
     if (isAlbumOrPlaylist) {
       request.addOption("--yes-playlist")
       request.addOption("--ignore-errors")
+      request.addOption("--no-abort-on-error")
       request.addOption(
         "-o",
         "${tempDir.absolutePath}/%(playlist_title,album,title|NouTube Collection)s/%(playlist_index,track_number|000)03d - %(title)s.%(ext)s"
@@ -222,7 +233,7 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
     request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
     request.addOption("-R", "2")
-    request.addOption("--socket-timeout", "20")
+    request.addOption("--socket-timeout", "25")
 
     var lastLine = ""
 
