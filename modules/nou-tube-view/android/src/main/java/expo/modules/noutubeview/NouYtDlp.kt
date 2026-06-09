@@ -19,14 +19,19 @@ internal class NouYtDlp(private val context: Context) {
     @Volatile private var ffmpegInitialized = false
 
     private const val DOWNLOAD_RELATIVE_PATH = "Music/NouTube"
-
     private const val SINGLE_AUDIO_FORMAT_ID = "bestaudio[ext=m4a]/bestaudio/best"
-    private const val PLAYLIST_AUDIO_FORMAT_ID = "bestaudio/best"
   }
 
   data class DownloadResult(
     val lastLine: String,
     val savedPath: String,
+  )
+
+  private data class PlaylistEntry(
+    val id: String,
+    val url: String,
+    val title: String,
+    val index: Int,
   )
 
   fun ensureInitialized() {
@@ -136,39 +141,21 @@ internal class NouYtDlp(private val context: Context) {
   fun listFormats(url: String): Map<String, Any> {
     ensureYoutubeDLInitialized()
 
-    val isAlbumOrPlaylist = isAlbumOrPlaylistUrl(url)
-    val formatId = if (isAlbumOrPlaylist) PLAYLIST_AUDIO_FORMAT_ID else SINGLE_AUDIO_FORMAT_ID
-
-    val request = YoutubeDLRequest(url)
-    request.addOption("--dump-json")
-
-    if (!isAlbumOrPlaylist) {
-      request.addOption("--no-playlist")
+    val isCollection = isAlbumOrPlaylistUrl(url)
+    val title = if (isCollection) {
+      getCollectionTitleFast(url)
     } else {
-      request.addOption("--yes-playlist")
-      request.addOption("--flat-playlist")
+      getSingleTitleFast(url)
     }
-
-    request.addOption("-R", "1")
-    request.addOption("--socket-timeout", "10")
-    request.addOption("-f", formatId)
-
-    val response = YoutubeDL.getInstance().execute(request)
-    val json = JSONObject(response.out ?: throw Exception("yt-dlp returned empty format output"))
-
-    val title = json.optString(
-      "playlist_title",
-      json.optString("album", json.optString("title", "NouTube Audio"))
-    )
 
     val options = mutableListOf<Map<String, String>>()
 
     options.add(
       mapOf(
-        "formatId" to formatId,
-        "label" to if (isAlbumOrPlaylist) "Album / Playlist (Best available)" else "Audio only (Best quality)",
-        "description" to if (isAlbumOrPlaylist) {
-          "Download all tracks as best available audio, then convert to M4A"
+        "formatId" to if (isCollection) "playlist" else SINGLE_AUDIO_FORMAT_ID,
+        "label" to if (isCollection) "Download Full Playlist / Album" else "Audio only (Best quality)",
+        "description" to if (isCollection) {
+          "Downloads tracks one-by-one with track count progress"
         } else {
           "Best available YouTube Music audio with album art"
         },
@@ -189,17 +176,98 @@ internal class NouYtDlp(private val context: Context) {
   ): DownloadResult {
     ensureInitialized()
 
-    val isAlbumOrPlaylist = isAlbumOrPlaylistUrl(url)
+    return if (isAlbumOrPlaylistUrl(url)) {
+      downloadCollection(url, onProgress)
+    } else {
+      downloadSingle(url, formatId, null, onProgress)
+    }
+  }
 
+  private fun downloadCollection(
+    url: String,
+    onProgress: (progress: Float, etaInSeconds: Long, line: String?) -> Unit,
+  ): DownloadResult {
+    val collectionTitle = getCollectionTitleFast(url)
+    val entries = extractPlaylistEntries(url)
+
+    if (entries.isEmpty()) {
+      throw Exception("Could not read playlist tracks")
+    }
+
+    var savedUri: Uri? = null
+    var savedCount = 0
+    var failedCount = 0
+    var lastLine = "Starting playlist download..."
+
+    onProgress(0f, 0L, "Playlist found: ${entries.size} tracks")
+
+    for ((zeroIndex, entry) in entries.withIndex()) {
+      val trackNumber = zeroIndex + 1
+      val total = entries.size
+      val safeTitle = cleanFileName(entry.title.ifBlank { "Track $trackNumber" })
+
+      try {
+        val result = downloadSingle(
+          url = entry.url,
+          formatId = SINGLE_AUDIO_FORMAT_ID,
+          collectionFolder = collectionTitle,
+        ) { songProgress, eta, line ->
+          val overall = (((trackNumber - 1).toFloat() + (songProgress / 100f)) / total.toFloat()) * 100f
+          val prettyLine = "Track $trackNumber / $total • $safeTitle • ${line ?: "Downloading..."}"
+          lastLine = prettyLine
+          onProgress(overall, eta, prettyLine)
+        }
+
+        savedCount++
+        savedUri = Uri.parse(result.savedPath)
+        onProgress(
+          (trackNumber.toFloat() / total.toFloat()) * 100f,
+          0L,
+          "Track $trackNumber / $total saved • $safeTitle"
+        )
+      } catch (e: Exception) {
+        failedCount++
+        lastLine = "Track $trackNumber / $total skipped • $safeTitle • ${e.message}"
+        Log.e("NouYtDlp", lastLine, e)
+
+        onProgress(
+          (trackNumber.toFloat() / total.toFloat()) * 100f,
+          0L,
+          lastLine
+        )
+      }
+    }
+
+    if (savedCount <= 0) {
+      throw Exception("Playlist failed. No tracks were saved. Last error: $lastLine")
+    }
+
+    val doneLine = if (failedCount > 0) {
+      "Playlist complete: $savedCount saved, $failedCount skipped"
+    } else {
+      "Playlist complete: $savedCount saved"
+    }
+
+    onProgress(100f, 0L, doneLine)
+
+    return DownloadResult(
+      lastLine = doneLine,
+      savedPath = savedUri?.toString() ?: "",
+    )
+  }
+
+  private fun downloadSingle(
+    url: String,
+    formatId: String,
+    collectionFolder: String?,
+    onProgress: (progress: Float, etaInSeconds: Long, line: String?) -> Unit,
+  ): DownloadResult {
     val tempDir = File(context.cacheDir, "yt-dlp-download-${System.currentTimeMillis()}").apply {
       mkdirs()
     }
 
     val request = YoutubeDLRequest(url)
-
-    val safeFormatId = if (isAlbumOrPlaylist) {
-      PLAYLIST_AUDIO_FORMAT_ID
-    } else if (
+    val safeFormatId = if (
       formatId.isBlank() ||
       formatId == "playlist" ||
       formatId == "album"
@@ -210,20 +278,8 @@ internal class NouYtDlp(private val context: Context) {
     }
 
     request.addOption("-f", safeFormatId)
-
-    if (isAlbumOrPlaylist) {
-      request.addOption("--yes-playlist")
-      request.addOption("--ignore-errors")
-      request.addOption("--no-abort-on-error")
-      request.addOption(
-        "-o",
-        "${tempDir.absolutePath}/%(playlist_title,album,title|NouTube Collection)s/%(playlist_index,track_number|000)03d - %(title)s.%(ext)s"
-      )
-    } else {
-      request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
-      request.addOption("--no-playlist")
-    }
-
+    request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
+    request.addOption("--no-playlist")
     request.addOption("--extract-audio")
     request.addOption("--audio-format", "m4a")
     request.addOption("--audio-quality", "0")
@@ -232,6 +288,7 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--add-metadata")
     request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
     request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
+    request.addOption("--ignore-errors")
     request.addOption("-R", "2")
     request.addOption("--socket-timeout", "25")
 
@@ -256,17 +313,6 @@ internal class NouYtDlp(private val context: Context) {
       var savedUri: Uri? = null
 
       for (file in outputFiles) {
-        val collectionFolder = if (isAlbumOrPlaylist) {
-          val parent = file.parentFile
-          if (parent != null && parent.absolutePath != tempDir.absolutePath) {
-            cleanFolderName(parent.name)
-          } else {
-            "Collection"
-          }
-        } else {
-          null
-        }
-
         savedUri = publishToMusic(file, collectionFolder)
       }
 
@@ -276,6 +322,93 @@ internal class NouYtDlp(private val context: Context) {
       )
     } finally {
       tempDir.deleteRecursively()
+    }
+  }
+
+  private fun extractPlaylistEntries(url: String): List<PlaylistEntry> {
+    ensureYoutubeDLInitialized()
+
+    val request = YoutubeDLRequest(url)
+    request.addOption("--dump-single-json")
+    request.addOption("--flat-playlist")
+    request.addOption("--yes-playlist")
+    request.addOption("--ignore-errors")
+    request.addOption("-R", "1")
+    request.addOption("--socket-timeout", "20")
+
+    val response = YoutubeDL.getInstance().execute(request)
+    val out = response.out ?: ""
+
+    if (out.isBlank()) return emptyList()
+
+    val json = JSONObject(out)
+    val entries = json.optJSONArray("entries") ?: return emptyList()
+    val results = mutableListOf<PlaylistEntry>()
+
+    for (i in 0 until entries.length()) {
+      val item = entries.optJSONObject(i) ?: continue
+
+      val id = item.optString("id", "").trim()
+      val rawUrl = item.optString("url", "").trim()
+      val title = item.optString("title", "Track ${i + 1}").trim()
+
+      val resolvedUrl = when {
+        rawUrl.startsWith("http") -> rawUrl
+        id.isNotBlank() -> "https://www.youtube.com/watch?v=$id"
+        rawUrl.isNotBlank() -> "https://www.youtube.com/watch?v=$rawUrl"
+        else -> ""
+      }
+
+      if (resolvedUrl.isNotBlank()) {
+        results.add(
+          PlaylistEntry(
+            id = id,
+            url = resolvedUrl,
+            title = title,
+            index = i + 1,
+          )
+        )
+      }
+    }
+
+    return results
+  }
+
+  private fun getCollectionTitleFast(url: String): String {
+    return try {
+      val request = YoutubeDLRequest(url)
+      request.addOption("--dump-single-json")
+      request.addOption("--flat-playlist")
+      request.addOption("--yes-playlist")
+      request.addOption("-R", "1")
+      request.addOption("--socket-timeout", "12")
+
+      val response = YoutubeDL.getInstance().execute(request)
+      val json = JSONObject(response.out ?: "")
+
+      json.optString(
+        "playlist_title",
+        json.optString("title", "NouTube Collection")
+      ).ifBlank { "NouTube Collection" }
+    } catch (_: Exception) {
+      "NouTube Collection"
+    }
+  }
+
+  private fun getSingleTitleFast(url: String): String {
+    return try {
+      val request = YoutubeDLRequest(url)
+      request.addOption("--dump-json")
+      request.addOption("--no-playlist")
+      request.addOption("-R", "1")
+      request.addOption("--socket-timeout", "10")
+      request.addOption("-f", SINGLE_AUDIO_FORMAT_ID)
+
+      val response = YoutubeDL.getInstance().execute(request)
+      val json = JSONObject(response.out ?: "")
+      json.optString("title", "NouTube Audio").ifBlank { "NouTube Audio" }
+    } catch (_: Exception) {
+      "NouTube Audio"
     }
   }
 
@@ -296,6 +429,10 @@ internal class NouYtDlp(private val context: Context) {
   }
 
   private fun cleanFolderName(name: String): String {
+    return cleanFileName(name).ifBlank { "NouTube Collection" }
+  }
+
+  private fun cleanFileName(name: String): String {
     return name
       .replace("/", "-")
       .replace("\\", "-")
@@ -306,8 +443,8 @@ internal class NouYtDlp(private val context: Context) {
       .replace("<", "")
       .replace(">", "")
       .replace("|", "")
+      .replace(Regex("\\s+"), " ")
       .trim()
-      .ifBlank { "NouTube Collection" }
   }
 
   fun update() {
