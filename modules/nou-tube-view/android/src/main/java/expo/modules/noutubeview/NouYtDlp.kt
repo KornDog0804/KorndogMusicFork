@@ -20,6 +20,7 @@ internal class NouYtDlp(private val context: Context) {
 
     private const val DOWNLOAD_RELATIVE_PATH = "Music/NouTube"
     private const val SINGLE_AUDIO_FORMAT_ID = "bestaudio[ext=m4a]/bestaudio/best"
+    private const val FALLBACK_AUDIO_FORMAT_ID = "bestaudio/best"
   }
 
   data class DownloadResult(
@@ -69,6 +70,7 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("--no-playlist")
     request.addOption("-R", "1")
     request.addOption("--socket-timeout", "15")
+    request.addOption("--extractor-args", "youtube:player_client=android,web")
     request.addOption("-f", SINGLE_AUDIO_FORMAT_ID)
 
     val response = YoutubeDL.getInstance().execute(request)
@@ -155,7 +157,7 @@ internal class NouYtDlp(private val context: Context) {
         "formatId" to if (isCollection) "playlist" else SINGLE_AUDIO_FORMAT_ID,
         "label" to if (isCollection) "Download Full Playlist / Album" else "Audio only (Best quality)",
         "description" to if (isCollection) {
-          "Downloads tracks one-by-one with track count progress"
+          "Downloads one track at a time with track count progress"
         } else {
           "Best available YouTube Music audio with album art"
         },
@@ -187,8 +189,9 @@ internal class NouYtDlp(private val context: Context) {
     url: String,
     onProgress: (progress: Float, etaInSeconds: Long, line: String?) -> Unit,
   ): DownloadResult {
-    val collectionTitle = getCollectionTitleFast(url)
-    val entries = extractPlaylistEntries(url)
+    val normalizedPlaylistUrl = normalizePlaylistUrl(url)
+    val collectionTitle = cleanFolderName(getCollectionTitleFast(normalizedPlaylistUrl))
+    val entries = extractPlaylistEntries(normalizedPlaylistUrl)
 
     if (entries.isEmpty()) {
       throw Exception("Could not read playlist tracks")
@@ -199,7 +202,7 @@ internal class NouYtDlp(private val context: Context) {
     var failedCount = 0
     var lastLine = "Starting playlist download..."
 
-    onProgress(0f, 0L, "Playlist found: ${entries.size} tracks")
+    onProgress(0f, 0L, "Playlist found: ${entries.size} tracks • $collectionTitle")
 
     for ((zeroIndex, entry) in entries.withIndex()) {
       val trackNumber = zeroIndex + 1
@@ -209,32 +212,34 @@ internal class NouYtDlp(private val context: Context) {
       try {
         val result = downloadSingle(
           url = entry.url,
-          formatId = SINGLE_AUDIO_FORMAT_ID,
+          formatId = FALLBACK_AUDIO_FORMAT_ID,
           collectionFolder = collectionTitle,
         ) { songProgress, eta, line ->
-          val overall = (((trackNumber - 1).toFloat() + (songProgress / 100f)) / total.toFloat()) * 100f
-          val prettyLine = "Track $trackNumber / $total • $safeTitle • ${line ?: "Downloading..."}"
+          val safeSongProgress = songProgress.coerceIn(0f, 100f)
+          val overall = (((trackNumber - 1).toFloat() + (safeSongProgress / 100f)) / total.toFloat()) * 100f
+
+          val prettyLine =
+            "Track $trackNumber / $total • Saved $savedCount • Skipped $failedCount • $safeTitle • ${line ?: "Downloading..."}"
+
           lastLine = prettyLine
-          onProgress(overall, eta, prettyLine)
+          onProgress(overall.coerceIn(0f, 100f), eta, prettyLine)
         }
 
         savedCount++
         savedUri = Uri.parse(result.savedPath)
-        onProgress(
-          (trackNumber.toFloat() / total.toFloat()) * 100f,
-          0L,
-          "Track $trackNumber / $total saved • $safeTitle"
-        )
+
+        val overallDone = (trackNumber.toFloat() / total.toFloat()) * 100f
+        lastLine = "Track $trackNumber / $total saved • Saved $savedCount • Skipped $failedCount • $safeTitle"
+
+        onProgress(overallDone.coerceIn(0f, 100f), 0L, lastLine)
       } catch (e: Exception) {
         failedCount++
-        lastLine = "Track $trackNumber / $total skipped • $safeTitle • ${e.message}"
-        Log.e("NouYtDlp", lastLine, e)
 
-        onProgress(
-          (trackNumber.toFloat() / total.toFloat()) * 100f,
-          0L,
-          lastLine
-        )
+        val overallDone = (trackNumber.toFloat() / total.toFloat()) * 100f
+        lastLine = "Track $trackNumber / $total skipped • Saved $savedCount • Skipped $failedCount • $safeTitle • ${e.message}"
+
+        Log.e("NouYtDlp", lastLine, e)
+        onProgress(overallDone.coerceIn(0f, 100f), 0L, lastLine)
       }
     }
 
@@ -243,9 +248,9 @@ internal class NouYtDlp(private val context: Context) {
     }
 
     val doneLine = if (failedCount > 0) {
-      "Playlist complete: $savedCount saved, $failedCount skipped"
+      "Playlist complete • Saved $savedCount • Skipped $failedCount • Total ${entries.size}"
     } else {
-      "Playlist complete: $savedCount saved"
+      "Playlist complete • Saved $savedCount / ${entries.size}"
     }
 
     onProgress(100f, 0L, doneLine)
@@ -267,6 +272,7 @@ internal class NouYtDlp(private val context: Context) {
     }
 
     val request = YoutubeDLRequest(url)
+
     val safeFormatId = if (
       formatId.isBlank() ||
       formatId == "playlist" ||
@@ -280,15 +286,24 @@ internal class NouYtDlp(private val context: Context) {
     request.addOption("-f", safeFormatId)
     request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
     request.addOption("--no-playlist")
+
     request.addOption("--extract-audio")
     request.addOption("--audio-format", "m4a")
     request.addOption("--audio-quality", "0")
+
     request.addOption("--embed-thumbnail")
     request.addOption("--convert-thumbnails", "jpg")
+    request.addOption("--write-thumbnail")
     request.addOption("--add-metadata")
+    request.addOption("--embed-metadata")
+
     request.addOption("--parse-metadata", "%(title)s:%(meta_title)s")
     request.addOption("--parse-metadata", "%(uploader)s:%(meta_artist)s")
+    request.addOption("--parse-metadata", "%(channel)s:%(meta_artist)s")
+
+    request.addOption("--extractor-args", "youtube:player_client=android,web")
     request.addOption("--ignore-errors")
+    request.addOption("--no-abort-on-error")
     request.addOption("-R", "2")
     request.addOption("--socket-timeout", "25")
 
@@ -328,13 +343,17 @@ internal class NouYtDlp(private val context: Context) {
   private fun extractPlaylistEntries(url: String): List<PlaylistEntry> {
     ensureYoutubeDLInitialized()
 
-    val request = YoutubeDLRequest(url)
+    val normalizedUrl = normalizePlaylistUrl(url)
+
+    val request = YoutubeDLRequest(normalizedUrl)
     request.addOption("--dump-single-json")
     request.addOption("--flat-playlist")
     request.addOption("--yes-playlist")
     request.addOption("--ignore-errors")
-    request.addOption("-R", "1")
-    request.addOption("--socket-timeout", "20")
+    request.addOption("--no-abort-on-error")
+    request.addOption("--extractor-args", "youtube:player_client=android,web")
+    request.addOption("-R", "2")
+    request.addOption("--socket-timeout", "25")
 
     val response = YoutubeDL.getInstance().execute(request)
     val out = response.out ?: ""
@@ -353,8 +372,8 @@ internal class NouYtDlp(private val context: Context) {
       val title = item.optString("title", "Track ${i + 1}").trim()
 
       val resolvedUrl = when {
-        rawUrl.startsWith("http") -> rawUrl
         id.isNotBlank() -> "https://www.youtube.com/watch?v=$id"
+        rawUrl.startsWith("http") -> rawUrl
         rawUrl.isNotBlank() -> "https://www.youtube.com/watch?v=$rawUrl"
         else -> ""
       }
@@ -362,7 +381,7 @@ internal class NouYtDlp(private val context: Context) {
       if (resolvedUrl.isNotBlank()) {
         results.add(
           PlaylistEntry(
-            id = id,
+            id = id.ifBlank { rawUrl },
             url = resolvedUrl,
             title = title,
             index = i + 1,
@@ -371,15 +390,17 @@ internal class NouYtDlp(private val context: Context) {
       }
     }
 
-    return results
+    return results.distinctBy { it.url }
   }
 
   private fun getCollectionTitleFast(url: String): String {
     return try {
-      val request = YoutubeDLRequest(url)
+      val request = YoutubeDLRequest(normalizePlaylistUrl(url))
       request.addOption("--dump-single-json")
       request.addOption("--flat-playlist")
       request.addOption("--yes-playlist")
+      request.addOption("--ignore-errors")
+      request.addOption("--extractor-args", "youtube:player_client=android,web")
       request.addOption("-R", "1")
       request.addOption("--socket-timeout", "12")
 
@@ -402,6 +423,7 @@ internal class NouYtDlp(private val context: Context) {
       request.addOption("--no-playlist")
       request.addOption("-R", "1")
       request.addOption("--socket-timeout", "10")
+      request.addOption("--extractor-args", "youtube:player_client=android,web")
       request.addOption("-f", SINGLE_AUDIO_FORMAT_ID)
 
       val response = YoutubeDL.getInstance().execute(request)
@@ -412,13 +434,37 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
+  private fun normalizePlaylistUrl(url: String): String {
+    val trimmed = url.trim()
+
+    val listId = Regex("""[?&]list=([^&]+)""")
+      .find(trimmed)
+      ?.groupValues
+      ?.getOrNull(1)
+      ?.trim()
+
+    if (!listId.isNullOrBlank()) {
+      return "https://www.youtube.com/playlist?list=$listId"
+    }
+
+    if (trimmed.startsWith("PL") || trimmed.startsWith("OLAK")) {
+      return "https://www.youtube.com/playlist?list=$trimmed"
+    }
+
+    return trimmed
+      .replace("https://music.youtube.com/playlist", "https://www.youtube.com/playlist")
+      .replace("http://music.youtube.com/playlist", "https://www.youtube.com/playlist")
+  }
+
   private fun isAlbumOrPlaylistUrl(url: String): Boolean {
     val lower = url.lowercase()
     return lower.contains("list=") ||
       lower.contains("/playlist") ||
       lower.contains("/browse/") ||
       lower.contains("olak") ||
-      lower.contains("olāk")
+      lower.contains("olāk") ||
+      lower.startsWith("pl") ||
+      lower.startsWith("olak")
   }
 
   private fun isPlayableAudioOutput(file: File): Boolean {
