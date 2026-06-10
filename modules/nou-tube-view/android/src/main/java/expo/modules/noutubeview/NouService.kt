@@ -210,8 +210,6 @@ class NouService : Service() {
     updateAll()
   }
 
-  // FIX: simple and clean — zero out position and record when track changed.
-  // No complex filtering in notifyProgress anymore.
   private fun forceTrackReset() {
     currentPosition = 0L
     lastTrackChangedAt = SystemClock.elapsedRealtime()
@@ -777,7 +775,9 @@ class NouService : Service() {
         return
       }
 
-      if (now - pendingSince < 500L) return
+      // FIX: was 500L — shortened to 150ms so duration updates before
+      // notifyProgress paints the new song's position over the old duration
+      if (now - pendingSince < 150L) return
     }
 
     if (now - lastNotifyAt < 250L && !trackChanged) return
@@ -785,8 +785,6 @@ class NouService : Service() {
     lastNotifyAt = now
 
     if (trackChanged) {
-      // FIX: reset position and duration together on track change so lock
-      // screen never shows stale progress from the previous song
       forceTrackReset()
       currentDuration = if (seconds > 0L) seconds * 1000L else 5 * 60 * 1000L
     } else if (seconds > 0L) {
@@ -817,12 +815,6 @@ class NouService : Service() {
     updateAll()
   }
 
-  // FIX: removed the over-aggressive looksLikeOldSongPosition and giantJumpForward
-  // guards that were blocking valid position updates after a song skip.
-  // Now: trust the position from the WebView directly. The only guard kept is
-  // a backwards-jump detection for genuine seeks backward (which is fine to allow).
-  // forceTrackReset() already zeros position on skip/next/prev, so stale positions
-  // from the old song are naturally replaced by the first real update from the new one.
   fun notifyProgress(playing: Boolean, pos: Long) {
     if (playing) {
       isPlaying = true
