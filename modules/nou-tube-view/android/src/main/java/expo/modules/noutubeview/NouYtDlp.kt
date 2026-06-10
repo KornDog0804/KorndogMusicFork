@@ -154,7 +154,7 @@ internal class NouYtDlp(private val context: Context) {
         "formatId" to if (isCollection) "playlist" else SINGLE_AUDIO_FORMAT_ID,
         "label" to if (isCollection) "Download Full Playlist / Album" else "Audio only (Best quality)",
         "description" to if (isCollection) {
-          "Skips songs already saved and downloads missing tracks one at a time"
+          "Deep scans playlist tracks, skips songs already saved, and downloads missing tracks one at a time"
         } else {
           "Best available YouTube Music audio with album art"
         },
@@ -188,7 +188,7 @@ internal class NouYtDlp(private val context: Context) {
   ): DownloadResult {
     val normalizedPlaylistUrl = normalizePlaylistUrl(url)
     val collectionTitle = cleanFolderName(getCollectionTitleFast(normalizedPlaylistUrl))
-    val entries = extractPlaylistEntriesWithFallback(normalizedPlaylistUrl)
+    val entries = extractPlaylistEntriesWithFallback(url)
 
     if (entries.isEmpty()) {
       throw Exception("YouTube blocked playlist scan. Songs and albums still work. Try opening the playlist in NouTube and downloading smaller sections.")
@@ -351,6 +351,12 @@ internal class NouYtDlp(private val context: Context) {
 
   private fun extractPlaylistEntriesWithFallback(url: String): List<PlaylistEntry> {
     val normalizedUrl = normalizePlaylistUrl(url)
+    val originalUrl = url.trim()
+
+    val urlsToTry = listOf(
+      normalizedUrl,
+      originalUrl
+    ).filter { it.isNotBlank() }.distinct()
 
     val clientAttempts = listOf(
       "android,web,tv",
@@ -361,16 +367,41 @@ internal class NouYtDlp(private val context: Context) {
       "tv"
     )
 
+    val allEntries = linkedMapOf<String, PlaylistEntry>()
     var lastError: Exception? = null
 
-    for (clients in clientAttempts) {
-      try {
-        val entries = extractPlaylistEntries(normalizedUrl, clients)
-        if (entries.isNotEmpty()) return entries
-      } catch (e: Exception) {
-        lastError = e
-        Log.e("NouYtDlp", "Playlist extract failed with clients=$clients", e)
+    for (tryUrl in urlsToTry) {
+      for (clients in clientAttempts) {
+        try {
+          val flatEntries = extractPlaylistEntries(tryUrl, clients, flat = true)
+          for (entry in flatEntries) {
+            allEntries[entry.url] = entry
+          }
+          Log.d("NouYtDlp", "Flat playlist scan found ${flatEntries.size} using $clients")
+        } catch (e: Exception) {
+          lastError = e
+          Log.e("NouYtDlp", "Flat playlist extract failed with clients=$clients", e)
+        }
+
+        try {
+          val deepEntries = extractPlaylistEntries(tryUrl, clients, flat = false)
+          for (entry in deepEntries) {
+            allEntries[entry.url] = entry
+          }
+          Log.d("NouYtDlp", "Deep playlist scan found ${deepEntries.size} using $clients")
+        } catch (e: Exception) {
+          lastError = e
+          Log.e("NouYtDlp", "Deep playlist extract failed with clients=$clients", e)
+        }
+
+        if (allEntries.size >= 250) {
+          return allEntries.values.sortedBy { it.index }.toList()
+        }
       }
+    }
+
+    if (allEntries.isNotEmpty()) {
+      return allEntries.values.sortedBy { it.index }.toList()
     }
 
     if (lastError != null) {
@@ -380,24 +411,32 @@ internal class NouYtDlp(private val context: Context) {
     return emptyList()
   }
 
-  private fun extractPlaylistEntries(url: String, clients: String): List<PlaylistEntry> {
+  private fun extractPlaylistEntries(url: String, clients: String, flat: Boolean): List<PlaylistEntry> {
     ensureYoutubeDLInitialized()
 
     val request = YoutubeDLRequest(normalizePlaylistUrl(url))
     request.addOption("--dump-single-json")
-    request.addOption("--flat-playlist")
     request.addOption("--yes-playlist")
     request.addOption("--ignore-errors")
     request.addOption("--no-abort-on-error")
     request.addOption("--extractor-args", "youtube:player_client=$clients")
+    request.addOption("--playlist-end", "9999")
     request.addOption("-R", "2")
-    request.addOption("--socket-timeout", "25")
+    request.addOption("--socket-timeout", "35")
+
+    if (flat) {
+      request.addOption("--flat-playlist")
+    }
 
     val response = YoutubeDL.getInstance().execute(request)
     val out = response.out ?: ""
 
     if (out.isBlank()) return emptyList()
 
+    return parsePlaylistEntries(out)
+  }
+
+  private fun parsePlaylistEntries(out: String): List<PlaylistEntry> {
     val json = JSONObject(out)
     val entries = json.optJSONArray("entries") ?: return emptyList()
     val results = mutableListOf<PlaylistEntry>()
@@ -407,9 +446,11 @@ internal class NouYtDlp(private val context: Context) {
 
       val id = item.optString("id", "").trim()
       val rawUrl = item.optString("url", "").trim()
+      val webpageUrl = item.optString("webpage_url", "").trim()
       val title = item.optString("title", "Track ${i + 1}").trim()
 
       val resolvedUrl = when {
+        webpageUrl.startsWith("http") -> webpageUrl
         id.isNotBlank() -> "https://www.youtube.com/watch?v=$id"
         rawUrl.startsWith("http") -> rawUrl
         rawUrl.isNotBlank() -> "https://www.youtube.com/watch?v=$rawUrl"
@@ -439,6 +480,7 @@ internal class NouYtDlp(private val context: Context) {
       request.addOption("--yes-playlist")
       request.addOption("--ignore-errors")
       request.addOption("--extractor-args", "youtube:player_client=android,web,tv")
+      request.addOption("--playlist-end", "9999")
       request.addOption("-R", "1")
       request.addOption("--socket-timeout", "12")
 
@@ -519,8 +561,8 @@ internal class NouYtDlp(private val context: Context) {
         val cleanDisplay = normalizeForMatch(displayName)
         val cleanTitle = normalizeForMatch(mediaTitle)
 
-        if (cleanDisplay.contains(cleanNeedle) || cleanNeedle.contains(cleanDisplay)) return true
-        if (cleanTitle.contains(cleanNeedle) || cleanNeedle.contains(cleanTitle)) return true
+        if (cleanDisplay.isNotBlank() && (cleanDisplay.contains(cleanNeedle) || cleanNeedle.contains(cleanDisplay))) return true
+        if (cleanTitle.isNotBlank() && (cleanTitle.contains(cleanNeedle) || cleanNeedle.contains(cleanTitle))) return true
       }
 
       false
@@ -777,7 +819,9 @@ internal class NouYtDlp(private val context: Context) {
     try {
       resolver.openOutputStream(uri)?.use { output ->
         sourceFile.inputStream().use { input ->
-          input.copyTo(output)
+          sourceFile.inputStream().use { input ->
+            input.copyTo(output)
+          }
         }
       } ?: throw Exception("Failed to open MediaStore output stream")
 
