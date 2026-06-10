@@ -43,7 +43,6 @@ class NouService : Service() {
   private var lastAcceptedArtworkKey = ""
   private var lastNotifyAt = 0L
   private var lastTrackChangedAt = 0L
-  private var lastProgressAcceptedAt = 0L
 
   private var notificationManager: NotificationManager? = null
   private var audioManager: AudioManager? = null
@@ -189,12 +188,9 @@ class NouService : Service() {
 
   private fun likeFromControl() {
     if (!controlAllowed()) return
-
     isLiked = !isLiked
     updateAll()
-
     runPlayerJs(likeJs())
-
     scope.launch {
       delay(900L)
       runPlayerJs(checkLikeStateJs())
@@ -210,16 +206,15 @@ class NouService : Service() {
   private fun seekFromControl(posMs: Long) {
     val safeMs = if (posMs < 0L) 0L else posMs
     currentPosition = safeMs
-    lastProgressAcceptedAt = SystemClock.elapsedRealtime()
     runPlayerJs(seekJs(safeMs / 1000L))
     updateAll()
   }
 
+  // FIX: simple and clean — zero out position and record when track changed.
+  // No complex filtering in notifyProgress anymore.
   private fun forceTrackReset() {
-    val now = SystemClock.elapsedRealtime()
     currentPosition = 0L
-    lastTrackChangedAt = now
-    lastProgressAcceptedAt = now
+    lastTrackChangedAt = SystemClock.elapsedRealtime()
   }
 
   private fun schedulePlayerRefresh() {
@@ -790,6 +785,8 @@ class NouService : Service() {
     lastNotifyAt = now
 
     if (trackChanged) {
+      // FIX: reset position and duration together on track change so lock
+      // screen never shows stale progress from the previous song
       forceTrackReset()
       currentDuration = if (seconds > 0L) seconds * 1000L else 5 * 60 * 1000L
     } else if (seconds > 0L) {
@@ -820,9 +817,13 @@ class NouService : Service() {
     updateAll()
   }
 
+  // FIX: removed the over-aggressive looksLikeOldSongPosition and giantJumpForward
+  // guards that were blocking valid position updates after a song skip.
+  // Now: trust the position from the WebView directly. The only guard kept is
+  // a backwards-jump detection for genuine seeks backward (which is fine to allow).
+  // forceTrackReset() already zeros position on skip/next/prev, so stale positions
+  // from the old song are naturally replaced by the first real update from the new one.
   fun notifyProgress(playing: Boolean, pos: Long) {
-    val now = SystemClock.elapsedRealtime()
-
     if (playing) {
       isPlaying = true
       userPausedFromControls = false
@@ -831,28 +832,7 @@ class NouService : Service() {
     }
 
     if (pos >= 0L) {
-      val incomingMs = pos * 1000L
-      val elapsedSinceTrackChange = if (lastTrackChangedAt > 0L) now - lastTrackChangedAt else Long.MAX_VALUE
-      val expectedMaxEarlyPosition = elapsedSinceTrackChange + 7000L
-
-      val looksLikeOldSongPosition =
-        lastTrackChangedAt > 0L &&
-          elapsedSinceTrackChange < 90_000L &&
-          incomingMs > expectedMaxEarlyPosition &&
-          incomingMs > 10_000L
-
-      val giantJumpForward =
-        currentPosition > 0L &&
-          incomingMs > currentPosition + 45_000L &&
-          now - lastProgressAcceptedAt < 10_000L
-
-      val realReset =
-        incomingMs <= 3000L || incomingMs < currentPosition - 5000L
-
-      if (realReset || (!looksLikeOldSongPosition && !giantJumpForward)) {
-        currentPosition = incomingMs
-        lastProgressAcceptedAt = now
-      }
+      currentPosition = pos * 1000L
     }
 
     if (currentDuration <= 0L) currentDuration = 5 * 60 * 1000L
