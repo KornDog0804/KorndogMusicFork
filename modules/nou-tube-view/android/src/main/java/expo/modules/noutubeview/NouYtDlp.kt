@@ -349,14 +349,15 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
+  // FIX: Stop hammering YouTube with 24 sequential requests before downloading anything.
+  // Now: try flat scan first, break as soon as we have entries, only deep scan if flat got nothing.
   private fun extractPlaylistEntriesWithFallback(url: String): List<PlaylistEntry> {
     val normalizedUrl = normalizePlaylistUrl(url)
     val originalUrl = url.trim()
 
-    val urlsToTry = listOf(
-      normalizedUrl,
-      originalUrl
-    ).filter { it.isNotBlank() }.distinct()
+    val urlsToTry = listOf(normalizedUrl, originalUrl)
+      .filter { it.isNotBlank() }
+      .distinct()
 
     val clientAttempts = listOf(
       "android,web,tv",
@@ -370,33 +371,36 @@ internal class NouYtDlp(private val context: Context) {
     val allEntries = linkedMapOf<String, PlaylistEntry>()
     var lastError: Exception? = null
 
-    for (tryUrl in urlsToTry) {
+    outer@ for (tryUrl in urlsToTry) {
       for (clients in clientAttempts) {
+        // Try flat scan first — fast, low cost
         try {
           val flatEntries = extractPlaylistEntries(tryUrl, clients, flat = true)
-          for (entry in flatEntries) {
-            allEntries[entry.url] = entry
-          }
+          for (entry in flatEntries) allEntries[entry.url] = entry
           Log.d("NouYtDlp", "Flat playlist scan found ${flatEntries.size} using $clients")
         } catch (e: Exception) {
           lastError = e
           Log.e("NouYtDlp", "Flat playlist extract failed with clients=$clients", e)
         }
 
+        // Got enough from flat — no need to deep scan or try more clients
+        if (allEntries.isNotEmpty()) break@outer
+
+        // Flat got nothing — try deep scan with same client combo before moving on
         try {
           val deepEntries = extractPlaylistEntries(tryUrl, clients, flat = false)
-          for (entry in deepEntries) {
-            allEntries[entry.url] = entry
-          }
+          for (entry in deepEntries) allEntries[entry.url] = entry
           Log.d("NouYtDlp", "Deep playlist scan found ${deepEntries.size} using $clients")
         } catch (e: Exception) {
           lastError = e
           Log.e("NouYtDlp", "Deep playlist extract failed with clients=$clients", e)
         }
 
-        if (allEntries.size >= 250) {
-          return allEntries.values.sortedBy { it.index }.toList()
-        }
+        // Got results from deep scan — done
+        if (allEntries.isNotEmpty()) break@outer
+
+        // Hit the cap mid-loop
+        if (allEntries.size >= 250) break@outer
       }
     }
 
@@ -472,6 +476,7 @@ internal class NouYtDlp(private val context: Context) {
     return results.distinctBy { it.url }
   }
 
+  // FIX: --playlist-end 1 instead of 9999 — we only need the title, not the full scan
   private fun getCollectionTitleFast(url: String): String {
     return try {
       val request = YoutubeDLRequest(normalizePlaylistUrl(url))
@@ -480,7 +485,7 @@ internal class NouYtDlp(private val context: Context) {
       request.addOption("--yes-playlist")
       request.addOption("--ignore-errors")
       request.addOption("--extractor-args", "youtube:player_client=android,web,tv")
-      request.addOption("--playlist-end", "9999")
+      request.addOption("--playlist-end", "1")
       request.addOption("-R", "1")
       request.addOption("--socket-timeout", "12")
 
@@ -787,6 +792,8 @@ internal class NouYtDlp(private val context: Context) {
     }
   }
 
+  // FIX: removed double-nested inputStream() — outer stream was opened and leaked,
+  // inner stream did the actual copy, outer was never closed properly
   private fun publishToMusic(sourceFile: File, collectionFolder: String? = null): Uri {
     val extension = sourceFile.extension.lowercase()
     val mimeType = MimeTypeMap.getSingleton()
@@ -819,9 +826,7 @@ internal class NouYtDlp(private val context: Context) {
     try {
       resolver.openOutputStream(uri)?.use { output ->
         sourceFile.inputStream().use { input ->
-          sourceFile.inputStream().use { input ->
-            input.copyTo(output)
-          }
+          input.copyTo(output)
         }
       } ?: throw Exception("Failed to open MediaStore output stream")
 
