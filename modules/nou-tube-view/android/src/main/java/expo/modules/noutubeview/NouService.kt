@@ -832,7 +832,15 @@ class NouService : Service() {
     }
 
     if (pos >= 0L) {
-      currentPosition = pos * 1000L
+      val incomingMs = pos * 1000L
+      // If position resets to near zero but track identity hasn't
+      // been confirmed yet, reset our position early so the bar
+      // doesn't show stale progress during the debounce window
+      if (incomingMs <= 3000L && currentPosition > 10_000L) {
+        currentPosition = 0L
+      } else {
+        currentPosition = incomingMs
+      }
     }
 
     if (currentDuration <= 0L) currentDuration = 5 * 60 * 1000L
