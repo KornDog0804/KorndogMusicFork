@@ -61,7 +61,7 @@ function thumb(){
 }
 
 function info(){
-  var title='',artist='',seconds=0,m=media();
+  var title='',artist='',albumGuess='',seconds=0,m=media();
 
   if(m&&isFinite(m.duration))seconds=Math.floor(m.duration||0);
 
@@ -75,18 +75,24 @@ function info(){
     document.querySelector('ytmusic-player-bar .subtitle')||
     document.querySelector('.subtitle.ytmusic-player-bar');
 
-  var rawArtist='';
-  if(ae)rawArtist=clean(ae.innerText||ae.textContent);
+  var rawSub='';
+  if(ae)rawSub=clean(ae.innerText||ae.textContent);
 
-  artist=rawArtist;
+  // YT Music subtitle formats:
+  // "Artist • Album • Year"  or  "Song • Artist"
+  var parts=rawSub.split(' • ').map(function(p){return p.trim();});
+  artist=parts[0]||'';
+  albumGuess='';
+  if(parts.length>=2)albumGuess=parts[1];
+  // If parts[1] looks like a bare year, it's not an album name
+  if(albumGuess&&/^\d{4}$/.test(albumGuess))albumGuess='';
 
-  if(artist.indexOf(' • ')>-1)artist=artist.split(' • ')[0].trim();
   if(artist.indexOf(' - ')>-1)artist=artist.split(' - ')[0].trim();
 
   return{
     title:title,
     artist:artist,
-    album:'',
+    album:albumGuess,
     thumb:thumb(),
     seconds:seconds
   };
@@ -134,7 +140,7 @@ function add(i){
       i.thumb=a[0].thumb;
     }
 
-    a[0].album='';
+    if(i.album)a[0].album=i.album;
 
     save(a);
     send(i);
@@ -144,7 +150,7 @@ function add(i){
   a.unshift({
     title:i.title,
     artist:i.artist,
-    album:'',
+    album:i.album||'',
     thumb:i.thumb||'',
     played:Date.now()
   });
@@ -733,6 +739,10 @@ function openGen(type){
       p.set('title',song.title);
       p.set('track',song.title);
       p.set('song',song.title);
+    }
+
+    if(song.album){
+      p.set('album',song.album);
     }
 
     if(song.thumb){
